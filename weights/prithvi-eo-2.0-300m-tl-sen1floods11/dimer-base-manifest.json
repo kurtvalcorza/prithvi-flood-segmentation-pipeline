@@ -1,0 +1,45 @@
+{
+  "format": "dimer_hf_snapshot",
+  "formatVersion": 1,
+  "modelKey": "prithvi-eo-2.0-300m-tl-sen1floods11",
+  "modelId": "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11",
+  "revision": "91ce9d38086a80b078a192b374df758b8855b732",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3243,
+      "sha256": "2aff52e3b680ca1f0b81a546dc733b4735a8611ab9b9623a3b0747d3e70c03cd"
+    },
+    {
+      "path": "config.json",
+      "bytes": 3365,
+      "sha256": "f03dee42a0cb6433d0e2b8dd109f852948142b221582ce06db97dc5e932afd62"
+    },
+    {
+      "path": "config.yaml",
+      "bytes": 3668,
+      "sha256": "ca2fa45885b85afac9400c57f7ca3b711526cbad3af285f8b67de74ba2db404a"
+    },
+    {
+      "path": "Prithvi-EO-V2-300M-TL-Sen1Floods11.pt",
+      "bytes": 1276843350,
+      "sha256": "76eed77d8bd543ae441308b80e8408502243a871cb8a338ddc8220ed96dfc270"
+    },
+    {
+      "path": "examples/India_900498_S2Hand.tif",
+      "bytes": 2151620,
+      "sha256": "ee898621b387a731503a01960397599f209b45c268d4e088689928c704dbe968"
+    },
+    {
+      "path": "examples/Spain_7370579_S2Hand.tif",
+      "bytes": 2320690,
+      "sha256": "16e997e6a7159fa11160faf00591da763eb37ac82faf806f7fe733991944a048"
+    },
+    {
+      "path": "examples/USA_430764_S2Hand.tif",
+      "bytes": 2199014,
+      "sha256": "385418e105dc1068a7d78585e4395bcdc134e7b0d092ba942867ef74393d8d12"
+    }
+  ],
+  "totalBytes": 1283524950
+}
