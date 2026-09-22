@@ -162,7 +162,7 @@ The model must not be used to direct evacuation, aid, insurance, damage assessme
 | Input contract | 512 × 512 chips of six bands (blue, green, red, narrow NIR, SWIR 1, SWIR 2) as arrays or GeoTIFFs; reflectance in [0, 1] or × 10 000; labels 0 / 1 / −1 for adaptation |
 | Sample data | fetched at run time from the public Sen1Floods11 bucket (CC BY 4.0), never vendored |
 
-**One thing is open, and it is neither the licence nor the code:** whether a one-time unpickle through torch's weights-only loader, after a static audit with a pinned digest — in the build and in the tutorial runtime, where the notebook converts what it downloads — meets the DIMER bar, or whether DIMER should host only the safetensors converted and verified once by the maintainer. The served artifact is the same file either way.
+**One thing is open, and it is neither the licence nor the code:** whether a one-time unpickle through torch's weights-only loader, after a static audit with a pinned digest — in the build and in the tutorial runtime, where the notebook converts what it downloads — meets the bar for redistribution, or whether only the safetensors converted and verified once by the maintainer should be published. The served artifact is the same file either way.
 
 ## Runtime
 
