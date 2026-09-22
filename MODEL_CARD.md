@@ -5,7 +5,7 @@ pipeline_tag: image-segmentation
 task: "Segmentation - Satellite Flood Mapping (Sentinel-2, Prithvi-EO-2.0 fine-tune)"
 base_model: ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11
 date_published: "2024-12-05"
-date_published_source: "Hugging Face Hub commit `60bda88c` (\"Add model weights\", 2024-12-05) that first published `Prithvi-EO-V2-300M-TL-Sen1Floods11.pt`; the pinned revision `91ce9d38…` (2026-08-25, \"Migrate off deprecated decoder_scale_modules\") carries the identical checkpoint bytes (SHA-256 `76eed77d…`) and a config.yaml expressing the same architecture with the `LearnedInterpolateToPyramidal` neck. The Prithvi-EO-2.0 preprint (arXiv:2412.02732) is from December 2024; the fleet inventory's `2024-12` is consistent with both."
+date_published_source: "Hugging Face Hub commit `60bda88c` (\"Add model weights\", 2024-12-05) that first published `Prithvi-EO-V2-300M-TL-Sen1Floods11.pt`; the pinned revision `91ce9d38…` (2026-08-25, \"Migrate off deprecated decoder_scale_modules\") carries the identical checkpoint bytes (SHA-256 `76eed77d…`) and a config.yaml expressing the same architecture with the `LearnedInterpolateToPyramidal` neck. The Prithvi-EO-2.0 preprint (arXiv:2412.02732) is from December 2024; the previously recorded `2024-12` is consistent with both."
 ---
 
 # Prithvi-EO-2.0-300M-TL Sen1Floods11 — Flood-Extent Segmentation (Sentinel-2 Chips & Bounded Decoder Fine-Tuning)
@@ -152,7 +152,7 @@ The model must not be used to direct evacuation, aid, insurance, damage assessme
 
 | Field | Status |
 |---|---|
-| **DIMER status** | **Planned / conditional** — the `.pt` asset-format and deserialization-trust review the fleet inventory requires is what this repository implements; the review's acceptance is Kurt's call |
+| **DIMER status** | **Planned / conditional** — the `.pt` asset-format and deserialization-trust review DIMER requires is what this repository implements; the review's acceptance is the maintainer's call |
 | Licence | Apache-2.0 (weights, the upstream Prithvi-EO-2.0 code, TerraTorch, and this repository's code) — use, modification, redistribution and commercial use permitted with the licence and notices preserved |
 | Weights | Would be redistributed converted, not unmodified: the served artifact is the deterministic safetensors derived from the pinned checkpoint, with both identities recorded (asset spec §11.2); this repository redistributes neither |
 | Remote code | **Not required** — no Hub-hosted module is imported; the model class comes from `terratorch==1.2.13` on PyPI |
