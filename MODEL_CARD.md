@@ -49,7 +49,7 @@ Two tasks are exposed. **Flood-extent segmentation:** input is a 512 × 512 chip
 
 ###### Primary Intended Users
 
-Intended users are Earth-observation scientists, disaster-response and GIS analysts, and machine-learning engineers who work with Sentinel-2 or HLS chips, in research, public service or the DIMER model workbench. The pipeline assumes its users understand that the model learned six specific bands at a specific scaling and that band order and reflectance units are part of the contract; that a hand label carries its own uncertainty at water edges and under cloud; that neighbouring chips are near-duplicates, so splits must be by scene or event; that the no-water baseline is the number to read first on chips with little water; and that a 12-chip evaluation is a sanity check, not a measurement of skill.
+Intended users are Earth-observation scientists, disaster-response and GIS analysts, and machine-learning engineers who work with Sentinel-2 or HLS chips, in research or public service. The pipeline assumes its users understand that the model learned six specific bands at a specific scaling and that band order and reflectance units are part of the contract; that a hand label carries its own uncertainty at water edges and under cloud; that neighbouring chips are near-duplicates, so splits must be by scene or event; that the no-water baseline is the number to read first on chips with little water; and that a 12-chip evaluation is a sanity check, not a measurement of skill.
 
 ###### Out-of-scope use cases
 
