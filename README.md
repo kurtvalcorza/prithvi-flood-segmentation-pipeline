@@ -32,7 +32,7 @@ masks = pipe.predict(splits["test"][:2])["predictions"]
 pipe.save_artifact("outputs/adapter")
 ```
 
-`predict()`, `evaluate()` and `adapt()` take records — `{id, image, label}` with a (6, 512, 512) reflectance array (or a GeoTIFF path; 13-band Sentinel-2 L1C files are reduced to the six bands) and a (512, 512) mask with 0 / 1 / −1. Values above 1 are scaled by 10⁻⁴, no-data (0 or −9999) is replaced by 0, and validation is structural: nothing checks that the bands are the right six in the right order or that the reflectance is corrected.
+`predict()`, `evaluate()` and `adapt()` take records — `{id, image, label}` with a (6, 512, 512) reflectance array (or a GeoTIFF path; 13-band Sentinel-2 L1C files are reduced to the six bands) and a (512, 512) mask with 0 / 1 / −1. Values above 2 are read as reflectance × 10 000 and scaled by 10⁻⁴ (once: a checked record is never rescaled), no-data (0 or −9999) is replaced by 0, and validation is structural: nothing checks that the bands are the right six in the right order or that the reflectance is corrected.
 
 ## Weights layout
 
@@ -70,7 +70,7 @@ Tests are offline: crafted pickles, temporary manifests, synthetic chips, an inj
 
 ## Release status
 
-**Release-grade** — the `E2E` notebook blob `6d648d70` (committed at `d43975f`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (10/10 ok (1 restart after install cell), 466.5 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
+**Release-grade** — the `E2E` notebook blob `a61580e4` (committed at `b6240ae`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok (1 restart after install cell), 392.9 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
 
 ## Licensing
 
