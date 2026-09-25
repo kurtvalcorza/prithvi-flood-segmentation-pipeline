@@ -70,7 +70,7 @@ Tests are offline: crafted pickles, temporary manifests, synthetic chips, an inj
 
 ## Release status
 
-**Release-grade** — the `E2E` notebook blob `6d648d70` (committed at `d43975f`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (10/10 ok (1 restart after install cell), 466.5 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
+**Release-grade** — the `E2E` notebook blob `a61580e4` (committed at `b6240ae`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok (1 restart after install cell), 392.9 s); the record is in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but were never the evidence; the hosted run is. A later change to the carried modules or the notebook returns the status to Candidate until re-verified.
 
 ## Licensing
 
