@@ -32,7 +32,7 @@ masks = pipe.predict(splits["test"][:2])["predictions"]
 pipe.save_artifact("outputs/adapter")
 ```
 
-`predict()`, `evaluate()` and `adapt()` take records — `{id, image, label}` with a (6, 512, 512) reflectance array (or a GeoTIFF path; 13-band Sentinel-2 L1C files are reduced to the six bands) and a (512, 512) mask with 0 / 1 / −1. Values above 1 are scaled by 10⁻⁴, no-data (0 or −9999) is replaced by 0, and validation is structural: nothing checks that the bands are the right six in the right order or that the reflectance is corrected.
+`predict()`, `evaluate()` and `adapt()` take records — `{id, image, label}` with a (6, 512, 512) reflectance array (or a GeoTIFF path; 13-band Sentinel-2 L1C files are reduced to the six bands) and a (512, 512) mask with 0 / 1 / −1. Values above 2 are read as reflectance × 10 000 and scaled by 10⁻⁴ (once: a checked record is never rescaled), no-data (0 or −9999) is replaced by 0, and validation is structural: nothing checks that the bands are the right six in the right order or that the reflectance is corrected.
 
 ## Weights layout
 
