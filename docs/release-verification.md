@@ -142,3 +142,37 @@ runtime, not general estimates.
 ## Current status
 
 **Release-grade.** The `E2E` notebook blob `a61580e4` (committed at `b6240ae`, the idempotent-scaling fix) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok (1 restart after install cell), 392.9 s, 106 files, 2664 MB fetched and digest-verified inside the notebook, the checkpoint converted in the notebook) with no repository checkout — the REL1/REL10 supported-runtime evidence this file gates on. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
+
+## Philippines flood-mapping capstone (`WORKSHOP`, Notebook Spec 2.2)
+
+`tutorials/DIMER_Philippines_Flood_Mapping_Capstone.ipynb` (`TASK-INFERENCE`, `WORKSHOP`, standalone) is a **Candidate**, recorded separately from the `E2E` tutorial above. That tutorial's release evidence does not qualify it.
+
+| Requirement | Evidence | Status |
+|---|---|---|
+| Carried files match `CARRIED_HASHES`; carried `prithvi_reference/`, manifest, licence and weight provenance equal this repository's; `source.json` agrees with the metadata; the data manifest pins one development and one held-out scene by dataset revision and SHA-256; every in-text citation resolves to a reference entry and every entry is cited | `tools/validate_release_assets.py`, `tests/test_capstone_notebook.py` | automatic, every pull request |
+| CPU checks from the capstone specification §12: label mapping, reflectance conversion and bounds, MNDWI denominator exclusion, threshold tie rule, undefined-metric reporting, window tiling and padding, duplicate-role rejection, reload parity, CSV and GeoTIFF round trips, stale-receipt invalidation | `tests/test_capstone_notebook.py` (synthetic arrays; not model-performance evidence) | automatic, every pull request |
+| Data feasibility gate (§4) on the actual rasters | CPU pre-flight, 2026-09-27 (below) | passed |
+| Fresh Colab T4 `Run all` of the committed blob, with total time, peak GPU memory and disk recorded | — | **required; not yet recorded** |
+| Dataset licensing and use review (WorldFloods v2 is CC BY-NC 4.0) | — | maintainer review pending |
+| Task-training overlap audit (Sen1Floods11 versus EMSR312 scenes) | — | pending |
+
+**Data feasibility gate, measured on the pinned rasters (2026-09-27).** Both 15-band Sentinel-2 L1C scenes are on the EPSG:32651 10 m grid, with masks aligned exactly and footprints that do not overlap. The files match their pinned sizes and SHA-256 values. Reflectance on valid pixels (×1e-4) spans 0.0028–1.2823 on Candon and 0.0027–1.5388 on Vigan.
+
+| Scene (role) | Size | Clear valid | Water px | Land px | Cloud px | Reference missing px | Optical invalid px | 512 px windows ≥ 80% valid |
+|---|---|---|---|---|---|---|---|---|
+| Candon `EMSR312_08CANDON_DEL_MONIT01_v1` (development) | 2,969 × 2,434 | 90.3% | 1,580,828 | 4,948,243 | 510,862 | 536,743 | 186,613 | 16 |
+| Vigan `EMSR312_07VIGAN_DEL_MONIT01_v1` (held-out) | 2,843 × 2,331 | 97.1% | 1,485,700 | 4,946,309 | 21,420 | 183,395 | 173,604 | 20 |
+
+The measured cloud fractions (7.1% of Candon, 0.3% of Vigan) agree with the specification's metadata-derived estimates.
+
+**Defects found in review and fixed before the first hosted run:**
+
+1. **Locked install.** `--only-binary :all:` could not install the lock, because `antlr4-python3-runtime==4.9.3` (required by `hydra-core` and `omegaconf`) is published on PyPI only as a source archive. The install cell now works in three steps: install the locked `setuptools` wheel, build `antlr4` from its hash-pinned archive with `--no-build-isolation`, then install the rest of the lock from wheels only. Every artefact is still hash-verified, and no unpinned build dependency is fetched.
+2. **Plotting backend.** Colab exports `MPLBACKEND=module://matplotlib_inline.backend_inline`, which the isolated environment cannot import. The sound-event workshop's first Colab run failed on this. The install cell now sets `MPLBACKEND=Agg` for every stage.
+3. **Reflectance record.** The reflectance range in `prepare.json` included masked pixels that had been zero-filled. It is now recorded over valid pixels only, both before and after the 1e-4 conversion.
+4. **Metadata keys.** The metadata keys were renamed to `notebook_profile` / `notebook_mode`.
+
+| Date (UTC) | Notebook source | Executor | Path exercised | Wall | Outcome |
+|---|---|---|---|---|---|
+| 2026-09-27 | This branch, blob `9ca6d8d02110` (sha256 `b890af31a81d…`) | Builder pre-flight in a real Jupyter kernel (`nbclient` + `ipykernel`), Linux container, 4-core CPU, no GPU. `MPLBACKEND=module://matplotlib_inline.backend_inline` was exported in the kernel, as on Colab. The notebook's own cells downloaded `uv` 0.12.15, created the managed Python 3.12.12 environment and installed the hash-locked set (`torch 2.11.0+cu130`, `terratorch 1.2.13`, `rasterio 1.4.4`); the package cache was warm from the first pre-flight. Two harness-only patches were used: a stub `nvidia-smi` for the runtime check, and CPU execution of the model stages (the device check, `device="cuda"` and the CUDA memory counters in the runner); the install check dropped its `torch.cuda.is_available()` assertion | Default `Run all`, all seven stages, each in a fresh process. The 1.28 GB checkpoint was fetched from the Hub and audited, then converted with `weights_only=True`, and the model loaded from safetensors | 248 s kernel wall (prepare 20 s, baseline 3 s, Candon inference 118 s, activity 2 s, Vigan inference 70 s, reload 14 s, report 6 s) | PASS — pre-flight only, **not** promotion evidence. 10/10 executed code cells, execution counts 1–10, no errors, 13 figures. Selected MNDWI threshold on Candon: 0.15 (water IoU 0.9259; 21 candidates from −0.50 to +0.50, winner inside the range). **Candon (development)** water IoU / precision / recall / accuracy: no-water 0 / undefined / 0 / 0.758; MNDWI 0.926 / 0.981 / 0.943 / 0.982; Prithvi 0.938 / 0.994 / 0.943 / 0.985. Threshold activity on Candon: IoU 0.946 at 0.3, 0.938 at 0.5, 0.925 at 0.7, with precision rising and recall falling. **Vigan (held-out)**: no-water 0 / undefined / 0 / 0.769; **MNDWI 0.752** / 0.980 / 0.764 / 0.942; **Prithvi 0.641** / 0.977 / 0.651 / 0.916 — the frozen index beats the frozen model on the held-out area. Candidate inundation outside JRC 2018 permanent water: 1.69 km² (Candon), 14.70 km² (Vigan). Fresh-process reload parity: exact (max absolute error 0.0, identical decisions). Exported rasters, CSVs and ZIP member hashes all verified; `results.zip` is 94.6 MB with 50 members. Metrics are identical to the first pre-flight. CPU float32 figures may differ slightly from a T4 run |
+| 2026-09-27 | Uploaded notebook (sha256 `7f9047ddf3a9…`), stages run directly from its carried files | Builder pre-flight, same container, CPU. The notebook's original install command failed on the `antlr4` source-only pin (defect 1), so the environment was installed with the three-step procedure; stages ran from a shell with `MPLBACKEND=Agg` and the CPU patch | All seven stages | 233 s of stage time | PASS after the install workaround — pre-flight only. Same metrics as the row above; exposed defects 1 and 3 |
