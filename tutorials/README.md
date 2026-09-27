@@ -16,6 +16,35 @@ reachable. Do not edit the notebook by hand; edit the package or the template an
 | Notebook | Profile | Mode | Carrier | Capability | Default runtime | Sample | BYOD | Run-all | Release status |
 |---|---|---|---|---|---|---|---|---|---|
 | `prithvi_flood_segmentation_colab.ipynb` | `E2E` | `GUIDED` | standalone (generated) | Prithvi-EO-2.0 flood-extent segmentation of six-band Sentinel-2 chips; static audit and one-time conversion of the pickled Lightning checkpoint into safetensors; 44 digest-pinned Sen1Floods11 chips with the official roles and refusal probes; pixel IoU / F1 / precision / recall against the no-water baseline for the frozen model; bounded fine-tuning of the neck, UPerNet decoder and head with frozen BatchNorm statistics; a three-way comparison on held-out test chips; segmentation of the upstream example chips; safetensors adapter export with verified reload parity | GPU (T4 or better); float16 autocast; about 2.5 GB of GPU memory | 44 chips + labels (88 pinned objects, about 104 MB) fetched at run time, no credential | zip of GeoTIFF pairs + `pairs.csv` (gated off by default) | ~1 min of model time on a T4 after the 1.28 GB Hub download, the conversion, the 104 MB data fetch and the terratorch install | **Release-grade** — clean-runtime Kaggle Tesla T4 execution of `b6240ae` / `a61580e4` recorded 2026-09-25 in `../docs/release-verification.md` |
+| `DIMER_Philippines_Flood_Mapping_Capstone.ipynb` | `TASK-INFERENCE` | `WORKSHOP` | standalone (carried package modules, stage runner, hash-locked dependency set and pinned WorldFloods v2 data manifest; isolated `uv` Python 3.12.12 environment; DIMER Notebook Specification 2.2) | Scientific capstone: frozen Prithvi versus a tuned MNDWI index and a no-water rule on two Typhoon Ompong (EMSR312) areas of Ilocos Sur, with Candon for every choice and Vigan held out; tiled 512 × 512 inference on the original georeferenced grid; a decision-threshold activity; error maps; candidate inundation outside JRC permanent water; georeferenced exports with fresh-process reload parity | GPU (T4) | two Sentinel-2 L1C scenes (about 164 MB) with masks and provenance, pinned by revision and SHA-256, no credential | deferred (links to the `E2E` tutorial) | 228 s of stage time on a Colab T4 (2026-09-27), after the isolated-environment install | **Candidate** — not qualified by the `E2E` tutorial's evidence; see `../docs/release-verification.md` |
+
+
+## Philippines flood-mapping capstone (`WORKSHOP`, DIMER Notebook Specification 2.2)
+
+`DIMER_Philippines_Flood_Mapping_Capstone.ipynb` is a separate scientific capstone built on this repository's model semantics. It
+does not change the `E2E` tutorial or its status. It asks whether a flood-trained foundation model beats a simple
+spectral index on Philippine scenes, and what that comparison can establish. The design is `../docs/philippines-flood-mapping-capstone-spec.md`.
+
+- **Reference notebook for Notebook Spec 2.2.** It implements the whole guided layer (GDL1–GDL15): learning
+  objectives, **How to use this notebook**, a roadmap, a glossary, a prediction before every principal result, collapsible
+  sample answers, a Predict → Change one thing → Run → Observe → Explain activity, collapsed **Infrastructure** cells,
+  troubleshooting and an evidence-based conclusion scaffold. Its scientific claims carry APA 7 in-text citations that
+  resolve to a DOI-bearing References section. The references were retrieved through the Scite literature service and
+  formatted from its stored metadata.
+- **Carrier.** The notebook is generated outside this repository (`generated_from` records the base revision, the
+  generator and the SHA-256 of every carried file) and does not use `tools/build_notebook.py`. Post-generation revisions
+  are listed in `metadata.dimer.generated_from.post_generation_revisions`. `tools/validate_release_assets.py` and
+  `tests/test_capstone_notebook.py` check that:
+  - every carried file matches `CARRIED_HASHES`;
+  - the carried `prithvi_reference/` modules, manifest, licence and weight provenance equal this repository's;
+  - `source.json` agrees with the metadata, and the data manifest pins one development and one held-out scene by
+    dataset revision and SHA-256;
+  - every in-text citation has a reference entry, and every entry is cited.
+- **Data.** WorldFloods v2 at revision `1f3faa29…` is **CC BY-NC 4.0**. Attribution and the non-commercial restriction are
+  kept separately from the Apache-2.0 code and weights. Course and distribution use needs maintainer review before
+  release.
+- **Status.** **Candidate.** A fresh Colab T4 `Run all` of blob `9ca6d8d02110` passed on 2026-09-27. The dataset licensing
+  review and the task-training overlap audit are still to be recorded in `../docs/release-verification.md`.
 
 ## Two things this tutorial does that most of the fleet's others do not
 

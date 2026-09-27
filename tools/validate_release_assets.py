@@ -111,6 +111,51 @@ FORBIDDEN_OUTSIDE_MODULE = (
 NOTEBOOK_SPEC = "2.0"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
+# WORKSHOP-mode notebooks (DIMER Notebook Specification 2.2). They carry their own reference source, dependency lock,
+# data manifest and runner and execute each stage in an isolated environment, so they are checked for carried-source
+# integrity and for byte parity of the carried package modules, manifest and licence with this repository. Their
+# status is their own: the E2E tutorial's release evidence never qualifies them.
+WORKSHOP_SPEC = "2.2"
+WORKSHOP_NOTEBOOKS = {
+    "DIMER_Philippines_Flood_Mapping_Capstone.ipynb": {
+        "profile": "TASK-INFERENCE",
+        "spec_doc": "docs/philippines-flood-mapping-capstone-spec.md",
+        "parity": {
+            "prithvi_reference/__init__.py": "src/prithvi_flood_segmentation_pipeline/__init__.py",
+            "prithvi_reference/metrics.py": "src/prithvi_flood_segmentation_pipeline/metrics.py",
+            "prithvi_reference/pipeline.py": "src/prithvi_flood_segmentation_pipeline/pipeline.py",
+            "prithvi_reference/samples.py": "src/prithvi_flood_segmentation_pipeline/samples.py",
+            "weights/prithvi-eo-2.0-300m-tl-sen1floods11/dimer-base-manifest.json": "weights/prithvi-eo-2.0-300m-tl-sen1floods11/dimer-base-manifest.json",
+            "licenses/code.txt": "LICENSE",
+            "licenses/weight-provenance.md": "docs/WEIGHTS.md",
+        },
+        # Learner-facing requirements of the reference notebook: guided layer, bootstrap fixes and references.
+        "markdown_markers": (
+            "### Learning objectives",
+            "### How to use this notebook",
+            "### Roadmap",
+            "<summary><strong>Glossary</strong>",
+            "Check your reasoning",
+            "Predict → Change one thing → Run → Observe → Explain",
+            "## Troubleshooting",
+            "## References",
+            "**AI Assistance Disclosure:**",
+            "not required submissions",
+        ),
+        "code_markers": (
+            "ENV['MPLBACKEND'] = 'Agg'",
+            "('antlr4-python3-runtime', ['--no-deps', '--no-build-isolation'])",
+            "run_stage('prepare')",
+            "run_stage('baseline')",
+            "run_stage('infer-development')",
+            "run_stage('activity')",
+            "run_stage('infer-heldout')",
+            "run_stage('reload')",
+            "run_stage('report')",
+        ),
+    },
+}
+CITATION = re.compile(r"\(([A-Z][^()]*?(?:et al\.)?[^()]*?), (\d{4})\)")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 IDENTITY_NAMES = ("MODEL_ID", "MODEL_REVISION", "MODEL_LICENSE", "MODEL_KEY")
@@ -396,7 +441,11 @@ def validate_release_status() -> None:
     _check("## Release status" in readme, "README.md must have a '## Release status' section")
     section = readme.split("## Release status", 1)[1]
     _check(section.lstrip().startswith(f"**{token}"), f"README.md release status must open with **{token}**")
-    registry = _read(ROOT / "tutorials" / "README.md").replace("**", "")
+    registry = "\n".join(
+        line
+        for line in _read(ROOT / "tutorials" / "README.md").replace("**", "").splitlines()
+        if not any(f"`{name}`" in line for name in WORKSHOP_NOTEBOOKS)
+    )
     _check(f"| {token}" in registry, f"tutorials/README.md must record the {token} status")
     other = [t for t in STATUS_TOKENS if t != token]
     for name, text in (("README.md", section.replace("**", "")), ("tutorials/README.md", registry)):
@@ -619,7 +668,7 @@ def _validate_notebook_content(
 
 def validate_notebooks() -> None:
     tutorials = ROOT / "tutorials"
-    notebooks = sorted(tutorials.glob("*.ipynb"))
+    notebooks = sorted(p for p in tutorials.glob("*.ipynb") if p.name not in WORKSHOP_NOTEBOOKS)
     _check(len(notebooks) == 1, f"exactly one tutorial notebook is expected, found {len(notebooks)}")
     path = notebooks[0]
     _check(path.name == NOTEBOOK_NAME, f"tutorial notebook must be named {NOTEBOOK_NAME}, found {path.name}")
@@ -641,13 +690,116 @@ def validate_notebooks() -> None:
     _check("standalone" in registry.lower(), "tutorials/README.md must record that the notebook is standalone")
 
 
+def _carried_literals(name: str, notebook: dict) -> tuple[dict, dict]:
+    cell = next((c for c in notebook["cells"] if "CARRIED_FILES = " in _cell_source(c)), None)
+    _check(cell is not None, f"{name}: no CARRIED_FILES cell")
+    values = {}
+    for node in ast.parse(_cell_source(cell)).body:
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id in ("CARRIED_FILES", "CARRIED_HASHES"):
+            values[node.targets[0].id] = ast.literal_eval(node.value)
+    _check(set(values) == {"CARRIED_FILES", "CARRIED_HASHES"}, f"{name}: CARRIED_FILES and CARRIED_HASHES must be literals")
+    return values["CARRIED_FILES"], values["CARRIED_HASHES"]
+
+
+def _references_section(name: str, markdown: str) -> str:
+    _check("## References" in markdown, f"{name}: a References section is required")
+    return markdown.split("## References", 1)[1]
+
+
+def validate_workshop_notebooks() -> None:
+    registry = _read(ROOT / "tutorials" / "README.md")
+    for name, spec in WORKSHOP_NOTEBOOKS.items():
+        path = ROOT / "tutorials" / name
+        _check(path.is_file(), f"workshop notebook missing: tutorials/{name}")
+        _check((ROOT / spec["spec_doc"]).is_file(), f"{name}: design specification {spec['spec_doc']} missing")
+        notebook = json.loads(_read(path))
+        meta = notebook.get("metadata", {}).get("dimer", {})
+        expected = {
+            "notebook_spec": WORKSHOP_SPEC,
+            "notebook_profile": spec["profile"],
+            "notebook_mode": "WORKSHOP",
+            "standalone": True,
+            "requires_dimer_worker": False,
+            "release_status": "Candidate",
+        }
+        for key, value in expected.items():
+            _check(meta.get(key) == value, f"{name}: metadata.dimer.{key} must be {value!r}, found {meta.get(key)!r}")
+        generated = meta.get("generated_from", {})
+        _check(generated.get("repository") == f"kurtvalcorza/{REPO_NAME}", f"{name}: generated_from must name this repository")
+        opening = _cell_source(notebook["cells"][0])
+        for needle in (f"`{spec['profile']}`", "`WORKSHOP`", f"`{WORKSHOP_SPEC}`", f"`{EXPECTED_MODEL_ID}`"):
+            _check(needle in opening, f"{name}: opening cell must declare {needle}")
+        code_sources, markdown = [], []
+        previous = None
+        for index, cell in enumerate(notebook["cells"]):
+            source = _cell_source(cell)
+            if cell["cell_type"] == "markdown":
+                markdown.append(source)
+                _check(not PLACEHOLDER.search(source), f"{name}: markdown cell {index} contains placeholder text")
+            else:
+                _check(not cell.get("outputs") and cell.get("execution_count") is None, f"{name}: cell {index} persists outputs or an execution count")
+                try:
+                    ast.parse(source)
+                except SyntaxError as exc:
+                    raise ValidationError(f"{name}: code cell {index} is not plain Python: {exc}") from exc
+                _check("git clone" not in source and "pip install -e" not in source, f"{name}: cell {index} clones or self-installs the repository")
+                _check(previous is not None, f"{name}: code cell {index} has no explanatory markdown before it")
+                infrastructure = source.startswith("# @title Infrastructure:")
+                if infrastructure:
+                    _check(cell.get("metadata", {}).get("cellView") == "form", f"{name}: infrastructure cell {index} must be collapsed (cellView form)")
+                code_sources.append(source)
+            previous = cell["cell_type"]
+        joined_code, joined_md = "\n".join(code_sources), "\n".join(markdown)
+        for marker in spec["code_markers"]:
+            _check(marker in joined_code, f"{name}: code must contain {marker!r}")
+        for marker in spec["markdown_markers"]:
+            _check(marker in joined_md, f"{name}: markdown must contain {marker!r}")
+        # Every in-text citation (Author, Year) must resolve to a reference entry, and every entry must be cited.
+        references = _references_section(name, joined_md)
+        body = joined_md.split("## References", 1)[0]
+        cited = {(re.split(r",| &| et al\.", author.strip())[0].strip(), year) for author, year in CITATION.findall(body)}
+        _check(cited, f"{name}: no in-text citations found")
+        entries = re.findall(r"(?m)^([A-Z][\w'\u00c0-\u017f-]+), [^\n]*?\((\d{4})\)\. ", references)
+        _check(len(entries) == len(set(entries)), f"{name}: duplicate reference entries")
+        for author, year in sorted(cited):
+            _check((author, year) in entries, f"{name}: citation ({author}, {year}) has no reference entry")
+        for author, year in entries:
+            _check((author, year) in cited, f"{name}: reference {author} ({year}) is never cited")
+            _check(re.search(rf"(?m)^{re.escape(author)}, [^\n]*\({year}\)\.[^\n]*https://doi\.org/10\.", references) is not None,
+                   f"{name}: reference {author} ({year}) must carry a DOI link")
+        files, hashes = _carried_literals(name, notebook)
+        _check(set(files) == set(hashes), f"{name}: CARRIED_FILES and CARRIED_HASHES name different files")
+        for carried, text in files.items():
+            actual = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            _check(actual == hashes[carried], f"{name}: carried {carried} does not match its CARRIED_HASHES digest")
+        for carried, source in spec["parity"].items():
+            committed = (ROOT / source).read_bytes().decode("utf-8").replace("\r\n", "\n")
+            _check(files.get(carried) == committed, f"{name}: carried {carried} differs from {source}")
+        recorded = json.loads(files["source.json"])
+        _check(recorded.get("files") == generated.get("files"), f"{name}: carried source.json and metadata generated_from disagree")
+        for carried, digest in recorded["files"].items():
+            _check(hashes.get(carried) == digest, f"{name}: source.json digest for {carried} is stale")
+        data = json.loads(files["data_manifest.json"])
+        roles = [record["role"] for record in data["records"]]
+        _check(sorted(roles) == ["development", "heldout"], f"{name}: the data manifest must pin one development and one held-out scene")
+        for record in data["records"]:
+            for asset in record["assets"].values():
+                _check(f"/resolve/{data['revision']}/" in asset["url"] and re.fullmatch(r"[0-9a-f]{64}", asset["sha256"]) is not None,
+                       f"{name}: {record['id']} assets must be pinned to the dataset revision with a SHA-256")
+        row = next((line for line in registry.splitlines() if f"`{name}`" in line), None)
+        _check(row is not None, f"{name} missing from tutorials/README.md")
+        for needle in (f"`{spec['profile']}`", "`WORKSHOP`", "Candidate"):
+            _check(needle in row, f"tutorials/README.md row for {name} must record {needle}")
+
+
 def validate_all() -> list[str]:
     validate_model_card()
     validate_identity_consistency()
     validate_weight_facts()
     validate_release_status()
     validate_notebooks()
-    return ["model-card", "identity-consistency", "weight-facts", "release-status", "notebook+parity"]
+    validate_workshop_notebooks()
+    return ["model-card", "identity-consistency", "weight-facts", "release-status", "notebook+parity", "workshop-notebooks"]
 
 
 def main() -> int:
