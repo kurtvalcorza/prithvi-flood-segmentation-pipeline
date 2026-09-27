@@ -4,4 +4,4 @@ Current status: **Release-grade** — the `E2E` tutorial notebook `tutorials/pri
 
 ## Philippines flood-mapping capstone
 
-`tutorials/DIMER_Philippines_Flood_Mapping_Capstone.ipynb` (`TASK-INFERENCE`, `WORKSHOP`, Notebook Spec 2.2) is a **Candidate**, tracked separately; the status above does not qualify it. The data feasibility gate and the CPU pre-flights are recorded in `docs/release-verification.md`. A fresh Colab T4 `Run all` of the committed blob, the dataset licensing review and the task-training overlap audit are still required.
+`tutorials/DIMER_Philippines_Flood_Mapping_Capstone.ipynb` (`TASK-INFERENCE`, `WORKSHOP`, Notebook Spec 2.2) is a **Candidate**, tracked separately; the status above does not qualify it. The data feasibility gate, the CPU pre-flights and a passing fresh Colab T4 `Run all` of blob `9ca6d8d02110` (2026-09-27) are recorded in `docs/release-verification.md`. The dataset licensing review and the task-training overlap audit are still required.
