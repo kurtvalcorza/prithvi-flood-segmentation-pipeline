@@ -310,3 +310,183 @@ def test_changed_inputs_invalidate_downstream_receipts(runner, tmp_path: Path) -
     (tmp_path / "data_manifest.json").write_text('{"changed": true}', encoding="utf-8")
     with pytest.raises(ValueError, match="Stale prepare receipt"):
         runner.verify_receipt(tmp_path, "prepare")
+
+
+# --- 2026-09-28 review fixes (F01-F05) ------------------------------------------------------------------------------
+
+
+def _markdown(notebook: dict) -> list[str]:
+    return [_source(c) for c in notebook["cells"] if c["cell_type"] == "markdown"]
+
+
+def _helpers(monkeypatch, root: Path) -> tuple[dict, list]:
+    """The notebook's own display helpers, executed with a recording stand-in for IPython.display."""
+    import types
+
+    shown: list = []
+    display = types.ModuleType("IPython.display")
+    display.display = shown.append
+    display.Markdown = lambda text: ("markdown", text)
+    display.Image = lambda filename: ("image", Path(filename).name)
+    display.FileLink = lambda path: ("link", path)
+    monkeypatch.setitem(sys.modules, "IPython", types.ModuleType("IPython"))
+    monkeypatch.setitem(sys.modules, "IPython.display", display)
+    install = _install_cell(_notebook())
+    namespace: dict = {"ROOT": root, "json": json}
+    exec(install[install.index("import csv") :], namespace)
+    return namespace, shown
+
+
+def test_threshold_answer_keys_do_not_promise_monotonic_precision() -> None:
+    # F01: raising a strict threshold removes predicted water, so area and recall cannot rise, but TP/(TP+FP) can move
+    # either way. F05: the interior optimum and the held-out wording must not overclaim.
+    markdown = "\n".join(_markdown(_notebook()))
+    for stale in ("precision rises", "the range was wide enough", "Vigan has not been touched"):
+        assert stale not in markdown
+    assert markdown.count("Precision may rise, fall or stay unchanged") == 2
+    assert "cannot increase predicted water area or recall" in markdown
+    assert "In the recorded Candon run, precision rose with the threshold; that is an observation" in markdown
+    assert "Vigan performance has not been used to select any threshold" in markdown
+    assert "**Declared inspection:**" in markdown and "the optimum among the tested candidates is not at a boundary" in markdown
+
+
+@pytest.mark.parametrize(
+    ("labels", "precision_direction"),
+    [((1, 1, 0), "falls"), ((0, 1, 1), "rises")],
+)
+def test_raising_the_threshold_never_raises_recall_but_precision_can_move_either_way(runner, labels, precision_direction):
+    # The review's P08 fixture: evaluated scores 0.4 / 0.6 / 0.8 plus one excluded pixel, scored as the activity does.
+    target = np.array([[*labels, 255]], dtype=np.uint8)
+    probability = np.array([[0.4, 0.6, 0.8, -9999]], dtype=np.float32)
+    rows = [runner.metrics(runner.confusion(target, probability > t)) for t in (0.3, 0.5, 0.7)]
+    predicted = [r["tp"] + r["fp"] for r in rows]
+    recall = [r["recall"] for r in rows]
+    precision = [r["precision"] for r in rows]
+    assert predicted == sorted(predicted, reverse=True) and recall == sorted(recall, reverse=True)
+    assert all(r["valid_pixels"] == 3 for r in rows)
+    if precision_direction == "falls":
+        assert precision == pytest.approx([2 / 3, 0.5, 0.0])
+    else:
+        assert precision == pytest.approx([2 / 3, 1.0, 1.0])
+
+
+def _write_raster(path: Path, array: np.ndarray, dtype: str, nodata=None) -> None:
+    import rasterio
+    from rasterio.transform import from_origin
+
+    array = array if array.ndim == 3 else array[None]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(path, "w", driver="GTiff", height=array.shape[1], width=array.shape[2], count=array.shape[0],
+                       dtype=dtype, crs="EPSG:32651", transform=from_origin(300000, 2000000, 10, 10), nodata=nodata) as dst:
+        dst.write(array.astype(dtype))
+
+
+def test_activity_reports_falling_precision_and_leaves_canonical_products_unchanged(runner, tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    record = {"id": "SYN_DEV", "role": "development", "assets": {}}
+    manifest = {"records": [record]}
+    _write_raster(runner.scene_output(tmp_path, record, "reference"), np.array([[1, 1, 0, 255]]), "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "probability"), np.array([[0.4, 0.6, 0.8, -9999]]), "float32", -9999)
+    runner.write_json(tmp_path / "outputs" / "selection.json", {"selected_threshold": 0.15, "canonical_prithvi_threshold": 0.5})
+    (tmp_path / "outputs" / "figures").mkdir()
+    watched = [runner.scene_output(tmp_path, record, k) for k in ("reference", "probability")]
+    watched.append(tmp_path / "outputs" / "selection.json")
+    before = {p: runner.sha256(p) for p in watched}
+    runner.activity(tmp_path, manifest)
+    import csv
+
+    with (tmp_path / "outputs" / "activity.csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert [float(r["precision"]) for r in rows] == pytest.approx([2 / 3, 0.5, 0.0])
+    assert [float(r["recall"]) for r in rows] == pytest.approx([1.0, 0.5, 0.0])
+    assert {p: runner.sha256(p) for p in watched} == before
+    assert runner.read_json(tmp_path / "outputs" / "selection.json")["canonical_prithvi_threshold"] == 0.5
+
+
+def test_diagnostic_figures_are_shown_in_semantic_order_not_filename_order(monkeypatch, tmp_path: Path) -> None:
+    # F03: sorted filenames would put fixed_location and the error windows before the whole-area score maps.
+    namespace, shown = _helpers(monkeypatch, tmp_path)
+    figures = tmp_path / "outputs" / "figures"
+    figures.mkdir(parents=True)
+    for name in ("fixed_location", "highest_false_negative", "highest_reference_disagreement", "probability_disagreement"):
+        (figures / f"development_{name}.png").write_bytes(b"png")
+    namespace["show_diagnostics"]("development")
+    images = [item[1] for item in shown if item[0] == "image"]
+    assert images == [
+        "development_probability_disagreement.png",
+        "development_fixed_location.png",
+        "development_highest_reference_disagreement.png",
+        "development_highest_false_negative.png",
+    ]
+    captions = [item[1] for item in shown if item[0] == "markdown"]
+    assert captions[0].startswith("**Whole area:") and all("Error window" in c for c in captions[1:])
+    (figures / "development_fixed_location.png").unlink()
+    with pytest.raises(RuntimeError, match="fixed_location"):
+        namespace["show_diagnostics"]("development")
+
+
+def test_verification_display_expands_reload_details(monkeypatch, tmp_path: Path) -> None:
+    # F04: the nested reload record (score difference, decision parity) is shown, not only scalar checks.
+    namespace, shown = _helpers(monkeypatch, tmp_path)
+    reload = {"probability_allclose": True, "max_absolute_error": 3.2e-7, "identical_binary_predictions": True}
+    (tmp_path / "outputs").mkdir()
+    (tmp_path / "outputs" / "verification.json").write_text(json.dumps({"csv_round_trips": "passed", "reload": reload}))
+    namespace["show_record"]("verification.json")
+    table = shown[0][1]
+    assert "| reload: max_absolute_error | 3.2e-07 |" in table
+    assert "| reload: identical_binary_predictions | True |" in table and "| csv_round_trips | passed |" in table
+
+
+def test_candidate_inundation_is_surfaced_with_its_area_and_limits(monkeypatch, tmp_path: Path) -> None:
+    namespace, shown = _helpers(monkeypatch, tmp_path)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    for scene, role, area in (("EMSR312_07VIGAN_X", "heldout", 14.7), ("EMSR312_08CANDON_X", "development", 1.69)):
+        (outputs / f"{scene}_candidate_inundation.json").write_text(json.dumps({
+            "scene": scene, "role": role, "meaning": "m", "candidate_inundation_km2": area, "confirmed_flood": False,
+            "limitations": "not pre-event evidence"}))
+    namespace["show_candidates"]()
+    table = shown[0][1]
+    assert table.index("08CANDON") < table.index("07VIGAN")
+    assert "| 08CANDON | development | 1.6900 | no |" in table and "| 07VIGAN | heldout | 14.7000 | no |" in table
+    assert [item[1] for item in shown[1:]] == ["development_candidate_inundation.png", "heldout_candidate_inundation.png"]
+
+
+def test_candidate_inundation_classes_sidecar_and_figure(runner, tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    record = {"id": "SYN_DEV", "role": "development", "assets": {"permanent": {"path": "SYN/permanent.tif"}}}
+    _write_raster(tmp_path / "cache" / "SYN" / "permanent.tif", np.array([[0, 1, 2, 3, 1]]), "uint8")
+    _write_raster(runner.scene_output(tmp_path, record, "prithvi"), np.array([[1, 1, 1, 1, 255]]), "uint8", 255)
+    products = runner.candidate_inundation(tmp_path, {"permanent_water": {"verified": True}}, record)
+    import rasterio
+
+    with rasterio.open(products[0]) as source:
+        assert source.read(1).tolist() == [[255, 1, 1, 0, 255]]
+    sidecar = runner.read_json(products[1])
+    assert sidecar["confirmed_flood"] is False and (sidecar["scene"], sidecar["role"]) == ("SYN_DEV", "development")
+    assert sidecar["candidate_inundation_km2"] == pytest.approx(2 * 100 / 1e6)
+    assert products[2].name == "development_candidate_inundation.png" and products[2].stat().st_size > 0
+
+
+def test_error_windows_show_the_optical_image_of_the_same_window(runner, tmp_path: Path) -> None:
+    # F02: each error window now reads the source image for true- and false-colour crops and a locator.
+    pytest.importorskip("matplotlib")
+    record = {"id": "SYN_DEV", "role": "development", "assets": {"image": {"path": "SYN/image.tif"}}}
+    reference = np.array([[0, 1, 1, 0, 255]] * 4)
+    _write_raster(runner.scene_output(tmp_path, record, "reference"), reference, "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "prithvi"), np.array([[1, 1, 0, 0, 255]] * 4), "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "mndwi"), np.array([[-0.2, 0.4, 0.4, -0.3, -9999]] * 4), "float32", -9999)
+    runner.write_json(tmp_path / "outputs" / "selection.json", {"selected_threshold": 0.15})
+    (tmp_path / "outputs" / "figures").mkdir()  # created by the prepare stage in the notebook
+    rows = [{"scene": "SYN_DEV", "method": "prithvi", "row": 0, "col": 0, "valid_pixels": 16, "fp": 4, "fn": 4}]
+    with pytest.raises(Exception, match="image.tif"):
+        runner.diagnostic_figures(tmp_path, record, rows)
+    _write_raster(tmp_path / "cache" / "SYN" / "image.tif", np.full((15, 4, 5), 1200), "uint16")
+    paths = runner.diagnostic_figures(tmp_path, record, rows)
+    assert [p.name for p in paths] == [
+        "development_fixed_location.png",
+        "development_highest_reference_disagreement.png",
+        "development_highest_false_positive.png",
+        "development_highest_false_negative.png",
+    ]
+    assert runner.error_classes(reference, np.array([[1, 1, 0, 0, 0]] * 4))[0].tolist() == [2, 1, 3, 0, 4]
