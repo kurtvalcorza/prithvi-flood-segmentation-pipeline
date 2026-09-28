@@ -159,6 +159,8 @@ Use only the two selected optical scenes by default; expected imagery total is a
 
 BYOD is deferred from version 1; link to the existing model tutorial's documented contract as an optional continuation. Do not add upload complexity to the capstone's core question.
 
+**BYOD applicability disposition (Notebook Spec 2.2 DAT10, DAT15, REL12; recorded 2026-09-28 after review).** DAT10 requires a local BYOD path *where the supported capability is intended to accept user-supplied data*. This capstone's capability is a fixed-case comparison, not a general water mapper: it needs a paired development and held-out reference on one event, a frozen Candon-only selection protocol and a verified permanent-water layer, none of which a learner's upload would supply. The capstone therefore does not accept user-supplied scenes, and DAT10, DAT15 and REL12 do not apply to it. The model's user-data capability is the `E2E` tutorial's BYOD path, which is qualified there. The link at the end of the notebook is a pointer to that tutorial; it is not, and is not presented as, a BYOD path in this notebook. This disposition is a scope decision for the maintainer to confirm before release.
+
 Include the agreed AI Assistance Disclosure: generative AI assisted code/documentation under maintainer direction; the maintainer owns review, validation and release; assistance is not independent verification, endorsement or approval.
 
 ## 12. Acceptance and handoff
