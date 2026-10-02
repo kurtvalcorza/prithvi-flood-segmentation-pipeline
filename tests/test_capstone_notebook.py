@@ -490,3 +490,39 @@ def test_error_windows_show_the_optical_image_of_the_same_window(runner, tmp_pat
         "development_highest_false_negative.png",
     ]
     assert runner.error_classes(reference, np.array([[1, 1, 0, 0, 0]] * 4))[0].tolist() == [2, 1, 3, 0, 4]
+
+
+def _load_splitter():
+    spec = importlib.util.spec_from_file_location("split_capstone_carrier", ROOT / "tools" / "split_capstone_carrier.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_no_capstone_cell_has_a_line_over_2000_characters() -> None:
+    # Colab became unresponsive on a notebook whose carrier was one very long line; the carrier is written in pieces.
+    splitter = _load_splitter()
+    assert splitter.MAX_LINE == 2000
+    assert splitter.long_lines(_notebook()) == []
+    for index, cell in enumerate(_notebook()["cells"]):
+        assert max(len(line) for line in _source(cell).split("\n")) <= 2000, f"cell {index}"
+
+
+def test_carrier_splitter_round_trips_exactly() -> None:
+    splitter = _load_splitter()
+    files = {
+        "empty.txt": "",
+        "long.txt": "x" * 2500 + "\n",
+        "multi.py": "a = 1\r\nb = 'two'\n\n\"\"\"q\"\"\"\tend",
+        "é.md": "café\n",
+    }
+    literal = splitter.carried_literal(files)
+    assert ast.literal_eval(literal) == files
+    assert max(len(line) for line in literal.split("\n")) <= splitter.CARRIER_PIECE + 20
+    source = f"# head\nCARRIED_FILES = {files!r}\nCARRIED_HASHES = {{}}\nprint('ok')\n"
+    split = splitter.split_carrier(source)
+    tree = ast.parse(split).body
+    assert ast.literal_eval(tree[0].value) == files
+    assert split.startswith("# head\nCARRIED_FILES = {\n") and split.endswith("}\nCARRIED_HASHES = {}\nprint('ok')\n")
+    assert splitter.split_carrier(split) == split
