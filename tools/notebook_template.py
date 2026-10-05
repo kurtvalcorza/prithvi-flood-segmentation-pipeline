@@ -45,9 +45,24 @@ TEMPLATE = {
     "notebook_name": "prithvi_flood_segmentation_colab.ipynb",
     "profile": "E2E",
     "mode": "GUIDED",
+    # SWP-R (2026-10-05 fleet sweep): nothing is pip-installed into the notebook kernel. The fleet's uv isolated-environment
+    # mechanism (build_notebook.py/2.2): managed CPython, a size- and SHA-256-verified uv wheel, and a lock compiled from the
+    # pyproject pins with `uv pip compile pyproject.toml --python-version 3.12 --python-platform x86_64-manylinux_2_28
+    # --generate-hashes --only-binary :all: -o tutorials/requirements-colab.lock.txt` (uv 0.12.15).
+    "isolated_runtime": True,
+    "infrastructure_labels": True,
+    "managed_python": "3.12.12",
+    "uv": {
+        "version": "0.12.15",
+        "url": "https://files.pythonhosted.org/packages/1e/fd/432451d732917c49152a291de3ef171aa6b0f1a22d39780fb2c1f085ca4c/uv-0.12.15-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "bytes": 20081404,
+        "sha256": "aee9802f46bae436bd91751bb33ddeb379ef1596b5c19df193219d545d244b60",
+    },
+    "lock": "tutorials/requirements-colab.lock.txt",
     "run_all": (
-        "Selecting **Run all** in a fresh **GPU** runtime installs the pinned dependencies (torch, torchvision, terratorch and its "
-        "stack, tifffile, numpy, safetensors, huggingface-hub), stages and digest-verifies the pinned Prithvi flood checkpoint "
+        "Selecting **Run all** in a fresh **GPU** runtime builds an isolated environment from the hash-locked pins (torch, torchvision, "
+        "terratorch and its stack, tifffile, numpy, safetensors, huggingface-hub); nothing is installed into the notebook's own Python, so "
+        "no restart is needed and Run all completes in one pass. It then stages and digest-verifies the pinned Prithvi flood checkpoint "
         "(1.28 GB) from the Hub, statically audits the Lightning pickle against an allow-list, converts it once into safetensors "
         "with a pinned digest, rebuilds the architecture from the installed `terratorch` package and loads it strictly, fetches 44 "
         "hand-labelled Sen1Floods11 chips (104 MB of digest-verified GeoTIFFs, no credential), validates them and assigns the "
@@ -56,12 +71,13 @@ TEMPLATE = {
         "segments the three example chips shipped with the upstream repository, exports the adapter as safetensors with a "
         "manifest, and reloads that artifact into a fresh pipeline to verify prediction parity. The default path needs no "
         "repository clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC "
-        "2.0 §5). On a T4 the whole path takes a few minutes of model time after the downloads; the terratorch install is the "
-        "slowest step."
+        "2.0 §5). On a T4 the whole path takes a few minutes of model time after the downloads; building the isolated "
+        "environment is the slowest step."
     ),
     "byod": (
         "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4 and re-run from that cell to supply your own "
-        "labelled chips as a zip holding `pairs.csv` (columns `id`, `image`, `label`) beside six-band 512 × 512 GeoTIFF chips "
+        "labelled chips — as `BYOD_PATH` (a path in the runtime, which works on Colab, Kaggle and Jupyter) or, when it is empty, "
+        "through the Colab upload dialog — as a zip (or folder) holding `pairs.csv` (columns `id`, `image`, `label`) beside six-band 512 × 512 GeoTIFF chips "
         "(blue, green, red, narrow NIR, SWIR 1, SWIR 2 — reflectance in [0, 1] or × 10 000) and single-band label rasters "
         "(0 = no water, 1 = water, −1 = no data); at least four chips with some water. Your chips are split by seed into "
         "training, validation and test sets and flow through the same contract — validation, frozen baseline, adaptation, "
@@ -69,6 +85,31 @@ TEMPLATE = {
         "guidance are stated in the Prerequisites and in Section 4, and uploaded files stay inside this runtime. BYOD is optional "
         "and never part of the default path."
     ),
+    "guided": {
+        "opening": [
+            '**Who this notebook is for.** The intended audience is a learner who knows basic Python, has used Colab or Jupyter, and wants to see how a geospatial '
+            'foundation model fine-tuned to map flood water in Sentinel-2 imagery is evaluated and adapted honestly: how its water masks are scored against a '
+            'baseline that predicts *land* everywhere, what a bounded fine-tuning of the decoder does to a model that already trained on this dataset, and how the '
+            'change is exported and reloaded. No prior experience with Prithvi, TerraTorch or remote sensing models is assumed; terms are explained where they '
+            'first matter and again in the **Glossary** at the end. A GPU runtime (T4 or better) is expected.\n\n**Input → Model → Output.**\n\n| | Segmentation | '
+            'Bounded fine-tuning |\n|---|---|---|\n| Input | six-band 512 × 512 Sentinel-2 reflectance chips (blue, green, red, narrow NIR, SWIR 1, SWIR 2) | '
+            'hand-labelled Sen1Floods11 chips with 0 / 1 / −1 masks (24 training, 8 validation, 12 test, official splits) |\n| Model | the Prithvi-EO-2.0 ViT-L '
+            'encoder, pyramid neck, UPerNet decoder and two-class head, loaded from audited, converted safetensors | the same model; only the neck, decoder and '
+            'head (15.1 M parameters) are trained, the encoder and BatchNorm statistics stay frozen |\n| Output | a per-pixel water mask, softmax scores, water '
+            "fraction; pixel IoU / F1 beside the no-water baseline | the adapted model's numbers beside the frozen model's on the same held-out chips, and a 60 MB "
+            'safetensors adapter that reloads with parity |\n\n**How to use this notebook.** Choose a GPU runtime (**Runtime → Change runtime type → T4 GPU**), then '
+            "**Runtime → Run all**. Run all completes in one pass: Section 1 installs nothing into the notebook's own Python, so no restart is needed. Sections 1–3 "
+            'are **infrastructure** — the isolated environment, the carried package and the audited model snapshot — and their cells are collapsed; you may run '
+            'them without studying them. The learning path starts in Section 4. Form fields (`# @param`) are the only values meant to be edited, and the defaults '
+            'reproduce the recorded run. Before each principal result the notebook asks you to **Predict**; after it come **What to notice** and a collapsible '
+            '**Check your reasoning** with a worked answer from the recorded run (the Kaggle Tesla T4 run of 25 September 2026 recorded in '
+            '`docs/release-verification.md`). Every adaptation starts from the pinned base, so re-running Section 6 with other settings is a fresh experiment. '
+            '**Troubleshooting**, a **Glossary** and a **Conclusion** template are at the end. Writing your predictions down is optional.\n\n**Roadmap:** 1–3 '
+            'infrastructure → 4 the labelled chips, validation and refusals *(evaluation practice)* → 5 the frozen model against the no-water baseline *(core '
+            'concept)* → 6 bounded fine-tuning of the neck, decoder and head *(core concept)* → 7 the held-out paired comparison *(evaluation practice)* → 8 new '
+            'chips, export and fresh reload *(engineering)* → interpretation, troubleshooting, glossary and your conclusion.'
+        ],
+    },
     "pipeline_class": "PrithviFloodPipeline",
     "model_load": "PrithviFloodPipeline.from_pretrained(weights_dir=WEIGHTS_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), report=print)",
     "weights_key": "prithvi-eo-2.0-300m-tl-sen1floods11",
@@ -108,10 +149,10 @@ TEMPLATE = {
         "exposes none of these."
     ),
     "prerequisites": [
-        "- **Runtime:** a fresh supported **GPU** runtime (Google Colab T4 or better, or a Jupyter kernel with a CUDA GPU and Python 3.12): the ViT-L encoder runs in float16 autocast and the default adaptation needs about 2.5 GB of GPU memory; on CPU one 512 × 512 chip takes tens of seconds and the adaptation would take an hour. About 3 GB of disk is needed for the checkpoint and its conversion; the `terratorch` install pulls torchgeo, lightning and their dependencies and takes several minutes.",
+        "- **Runtime:** a fresh supported **GPU** runtime (Google Colab T4 or better, or a Jupyter kernel with a CUDA GPU and Python 3.12): the ViT-L encoder runs in float16 autocast and the default adaptation needs about 2.5 GB of GPU memory; on CPU one 512 × 512 chip takes tens of seconds and the adaptation would take an hour. About 3 GB of disk is needed for the checkpoint and its conversion; building the isolated environment (terratorch pulls torchgeo, lightning and their dependencies) takes several minutes the first time and is reused on a re-run.",
         "- **Knowledge:** what a multispectral reflectance chip is (bands, scaling, no-data), what a pixel-wise segmentation mask and an ignore class are, and how IoU, precision and recall are read against a majority baseline.",
         "- **Executable serialization handled explicitly:** the pinned checkpoint is a pickle. It is digest-verified, statically audited against an allow-list (audit digest pinned) and unpickled **once** through torch's weights-only loader to produce the safetensors the model is actually loaded from. No Hub-hosted Python module is imported; `terratorch` is installed from PyPI at a pinned version.",
-        "- **Data contract:** a record is `{{id, image, label}}` — a (6, 512, 512) reflectance array (or a GeoTIFF; 13-band Sentinel-2 L1C files are reduced to the six Prithvi bands) with values in [0, 1] or × 10 000, no-data 0 or −9999, and a (512, 512) mask with 0 / 1 / −1. Validation is structural: nothing checks that the bands are the right six in the right order, that the reflectance is corrected, or that the label belongs to the chip.",
+        "- **Data contract:** a record is `{id, image, label}` — a (6, 512, 512) reflectance array (or a GeoTIFF; 13-band Sentinel-2 L1C files are reduced to the six Prithvi bands) with values in [0, 1] or × 10 000, no-data 0 or −9999, and a (512, 512) mask with 0 / 1 / −1. Validation is structural: nothing checks that the bands are the right six in the right order, that the reflectance is corrected, or that the label belongs to the chip.",
         "- **Privacy:** Do not upload confidential or restricted data to a hosted runtime unless you are authorized to process it there — commercial imagery under licence or unreleased disaster assessments are exactly that. The default path uploads nothing.",
         "- **External access (data):** besides the Hub, the default path fetches 88 pinned objects (44 chips and their labels, about 104 MB) from the public Sen1Floods11 bucket `storage.googleapis.com/sen1floods11` over HTTPS, digest-verified before decoding; Sen1Floods11 is CC BY 4.0 (Cloud to Street).",
     ],
@@ -128,22 +169,39 @@ TEMPLATE = {
                 "validates every split, checks that no chip appears twice and records a digest.\n\n"
                 "Look for: 24 / 8 / 12 chips with water fractions around 0.2..0.4, a written sample pair "
                 "(`outputs/{stem}_sample_chip.tif` + `_sample_label.tif`, the BYOD shape), and three refusal probes — a five-band "
-                "chip, a label with an unknown class, a chip with reflectance far outside range — each rejected before the model runs."
+                "chip, a label with an unknown class, a chip with reflectance far outside range — each rejected before the model runs.\n\n"
+                "*Evaluation practice.* **Predict before running:** cloud and no-data pixels are labelled −1. What would happen to the "
+                "baseline's accuracy if they were counted as land?"
             ),
             "code": (
                 "import json\n"
                 "import os\n"
                 "from pathlib import Path\n\n"
                 "import numpy as np\n\n"
-                "USE_BYOD = False  # @param {{type:\"boolean\"}}\n\n"
+                "USE_BYOD = False  # @param {{type:\"boolean\"}}\n"
+                "# A .zip or a folder already in the runtime (works on Colab, Kaggle and Jupyter); empty = the Colab upload dialog.\n"
+                "BYOD_PATH = ''  # @param {{type:\"string\"}}\n\n"
                 "os.makedirs('outputs', exist_ok=True)\n"
                 "if USE_BYOD:\n"
-                "    from google.colab import files\n"
-                "    uploaded = files.upload()\n"
-                "    file_name, payload = next(iter(uploaded.items()))\n"
-                "    byod_path = Path('work') / file_name\n"
-                "    byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
-                "    byod_path.write_bytes(payload)\n"
+                "    if BYOD_PATH.strip():\n"
+                "        byod_path = Path(BYOD_PATH.strip()).expanduser()\n"
+                "        if not byod_path.exists():\n"
+                "            raise FileNotFoundError(f'BYOD_PATH {{BYOD_PATH!r}} does not exist (relative paths start at {{Path.cwd()}}): give a .zip or a folder holding pairs.csv and the GeoTIFF files.')\n"
+                "        file_name = byod_path.name\n"
+                "    else:\n"
+                "        try:\n"
+                "            from google.colab import files\n"
+                "        except ImportError:\n"
+                "            raise RuntimeError('USE_BYOD is True but BYOD_PATH is empty, and the upload dialog exists only in Google Colab: on Kaggle or Jupyter put the zip (or folder) in the runtime and set BYOD_PATH to its path.') from None\n"
+                "        uploaded = files.upload() or {{}}\n"
+                "        if len(uploaded) != 1:\n"
+                "            raise ValueError(f'Upload exactly one .zip file (received {{len(uploaded)}}; a cancelled dialog sends none): run this cell again.')\n"
+                "        file_name, payload = next(iter(uploaded.items()))\n"
+                "        if not file_name.lower().endswith('.zip'):\n"
+                "            raise ValueError(f'{{file_name}}: upload one .zip holding pairs.csv and the GeoTIFF files.')\n"
+                "        byod_path = Path('work') / file_name\n"
+                "        byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
+                "        byod_path.write_bytes(payload)\n"
                 "    splits = split_dataset(load_byod_dataset(byod_path), seed=0)\n"
                 "    data_source = 'BYOD (' + file_name + ')'\n"
                 "else:\n"
@@ -173,6 +231,14 @@ TEMPLATE = {
         },
         {
             "md": (
+                '**What to notice:** 24 / 8 / 12 chips, the water fractions per split, the ignored-pixel counts, and the three refusals.\n\n<details><summary>Check your '
+                'reasoning</summary>It would rise for free: every cloud pixel would count as a correct *land* prediction. Pixels labelled −1 are excluded from every '
+                "metric instead, so the baseline's accuracy is exactly the labelled land fraction (0.8049 on the test chips in the recorded run). The refusals (five "
+                'bands, an unknown class, reflectance far out of range) stop before any model call and name the rule.</details>'
+            ),
+        },
+        {
+            "md": (
                 "## 5. The frozen model against the no-water baseline\n\n"
                 "`pipe.predict` standardises each chip with the upstream datamodule's band statistics, runs the encoder, neck, "
                 "decoder and head in float16 autocast, and returns the argmax mask, the softmax scores (the model's outputs, not "
@@ -180,13 +246,33 @@ TEMPLATE = {
                 "held-out chip into one confusion matrix (−1 pixels excluded) and reports the per-class IoU, mean IoU, accuracy, "
                 "and the water class's precision, recall and F1; the **no-water baseline** — every pixel predicted as land — is "
                 "scored on the same pixels, so its accuracy is exactly the land fraction and its water IoU is 0.\n\n"
-                "Look for: a water IoU well above 0 on the test chips (in the build record about 0.59, with recall above "
-                "precision — the model over-predicts water on some regions), a validation water IoU around 0.86, and per-chip "
-                "water fractions that track the labels. These are sample-sanity numbers on 12 and 8 chips, not the benchmark."
+                "Look for: a water IoU well above 0 on the test chips (0.730, F1 0.844, in the recorded Kaggle T4 run of "
+                "2026-09-25), a validation water IoU around 0.86, precision against recall, and per-chip water fractions that track "
+                "the labels. These are sample-sanity numbers on 12 and 8 chips, not the benchmark. If you re-run this cell after "
+                "Section 6, it first puts the adapted tensors back to the pinned base, so *frozen* always means the packaged model.\n\n"
+                "**Predict before running:** the packaged model was fine-tuned on Sen1Floods11. Will the test chips (seven regions) or "
+                "the validation chips be easier for it?"
             ),
             "code": (
                 "import time\n\n"
                 "t0 = time.perf_counter()\n"
+                "# SWP-F: the pinned base of every tensor adaptation may change is kept once, before any training; restore_pinned_base()\n"
+                "# puts it back. Section 5 scores the pinned base on a re-run (then re-run Sections 6-8 in order), and Section 6 starts\n"
+                "# every adaptation from it.\n"
+                "if '_PINNED_BASE' not in globals():\n"
+                "    _adaptable = set(pipe._trainable('decoder+last_block'))\n"
+                "    _PINNED_BASE = {{k: v.detach().clone() for k, v in pipe.model.state_dict().items() if k in _adaptable}}\n\n"
+                "def restore_pinned_base(pipeline):\n"
+                "    current = pipeline.model.state_dict()\n"
+                "    changed = sorted(k for k, v in _PINNED_BASE.items() if not bool((current[k] == v.to(current[k].device)).all()))\n"
+                "    if changed:\n"
+                "        pipeline.model.load_state_dict({{**current, **{{k: _PINNED_BASE[k].to(current[k].device) for k in changed}}}}, strict=True)\n"
+                "        pipeline.model.eval()\n"
+                "    pipeline.adapter = None\n"
+                "    return changed\n\n"
+                "restored_tensors = restore_pinned_base(pipe)\n"
+                "if restored_tensors:\n"
+                "    print({{'restored_pinned_base': len(restored_tensors), 'note': 'adapted tensors put back to the pinned base; re-run Sections 6-8 in order'}})\n"
                 "frozen_test = pipe.evaluate(test_records)\n"
                 "frozen_val = pipe.evaluate(val_records)\n"
                 "print({{'seconds': round(time.perf_counter() - t0, 1), 'metric': frozen_test['metric']}})\n"
@@ -202,6 +288,14 @@ TEMPLATE = {
         },
         {
             "md": (
+                '**What to notice:** `baseline_no_water_test` beside `frozen_test`, precision against recall, the validation IoU, and the per-chip water fractions.\n\n<details><summary>Check '
+                "your reasoning</summary>Validation. In the recorded run the frozen test water IoU was 0.7301 (F1 0.8440, accuracy 0.9440 against the baseline's "
+                '0.8049) while validation reached 0.8614. Twelve test chips from seven regions include harder scenes; differences between splits this small say more '
+                'about which chips were drawn than about the model.</details>'
+            ),
+        },
+        {
+            "md": (
                 "## 6. Bounded fine-tuning of the neck, decoder and head\n\n"
                 "`pipe.adapt` trains the 46 tensors of the pyramid neck, the UPerNet decoder and the head (15.1 M parameters — "
                 "4.7 % of the model) and nothing else: the ViT-L encoder is frozen (no gradient is stored for it), and every "
@@ -213,7 +307,11 @@ TEMPLATE = {
                 "Watch the validation loss: in the build record it dipped at epoch 2 and rose again by epoch 4 — the sign that a "
                 "small learning rate and validation selection are doing their job on a model that has little left to learn from "
                 "24 chips it has already seen the distribution of. Four epochs (48 steps) take under a minute on a T4. "
-                "`TRAINABLE = 'decoder+last_block'` also unfreezes the last encoder block (27.7 M parameters)."
+                "`TRAINABLE = 'decoder+last_block'` also unfreezes the last encoder block (27.7 M parameters). The cell first restores "
+                "the pinned base kept in Section 5 (`started_from` is printed), so a re-run with other settings is a fresh experiment, "
+                "not continued training, and epoch 0 is always the frozen model.\n\n"
+                "**Predict before running:** at which epoch will the validation loss be lowest — 0 (the frozen model), the middle, or "
+                "the last?"
             ),
             "code": (
                 "EPOCHS = 4  # @param {{type:\"integer\"}}\n"
@@ -228,6 +326,8 @@ TEMPLATE = {
                 "    if 'note' in entry:\n"
                 "        row['note'] = entry['note']\n"
                 "    print(row)\n\n"
+                "restored_tensors = restore_pinned_base(pipe)  # SWP-F: every adaptation starts from the pinned base\n"
+                "print({{'started_from': 'pinned base' + (f' (restored {{len(restored_tensors)}} tensors an earlier run changed)' if restored_tensors else '')}})\n"
                 "t0 = time.perf_counter()\n"
                 "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, trainable=TRAINABLE, progress=report)\n"
                 "adapt_seconds = round(time.perf_counter() - t0, 1)\n"
@@ -236,16 +336,26 @@ TEMPLATE = {
         },
         {
             "md": (
+                '**What to notice:** epoch 0 (`note: frozen model`), the validation loss per epoch, `best_epoch`, and the trainable share of the parameters.\n\n<details><summary>Check '
+                'your reasoning</summary>The middle. In the recorded run validation loss went from 0.1306 (frozen) to its minimum 0.1178 at epoch 2 and rose again by '
+                'epoch 4, so epoch 2 was kept (validation water IoU 0.8614 → 0.8748). Validation selection stopped the drift that the last two epochs '
+                'started.</details>'
+            ),
+        },
+        {
+            "md": (
                 "## 7. Held-out evaluation: the paired comparison\n\n"
                 "The test chips were never used for training or epoch selection (they come from the official test split). The "
                 "adapted model is scored exactly as the frozen model was in Section 5, and the table puts the baseline, the "
-                "frozen and the adapted numbers side by side. The cell asserts what the procedure guarantees — the kept epoch's "
-                "validation loss is no higher than the frozen model's, and re-scoring the validation chips reproduces the kept "
-                "epoch's positive-class IoU within 0.01 (float16 kernels are not bit-reproducible across batch sizes) — and prints the test numbers without asserting a "
-                "direction: on this sample the water IoU moved from about 0.59 to 0.60 in the build record, a sample-sanity "
+                "frozen and the adapted numbers side by side. The cell stops only on what the procedure guarantees — the kept epoch's "
+                "validation loss is no higher than the frozen model's (epoch 0 is a candidate), and re-scoring the validation chips "
+                "reproduces the kept epoch's positive-class IoU within 0.01 (float16 kernels are not bit-reproducible across batch "
+                "sizes) — and records the test direction as a **verdict** (`improved`, `no change` or `worse`) instead of asserting one: on this sample the water IoU moved from 0.730 to 0.746 in the recorded run, a sample-sanity "
                 "observation on 12 chips with no dispersion estimate, not a quality claim. Twelve chips from seven regions "
                 "cannot separate a real gain from noise; with your own chips from a new sensor or region, the gap between "
-                "frozen and adapted is the number to watch."
+                "frozen and adapted is the number to watch.\n\n"
+                "*Evaluation practice.* **Predict before running:** if the test water IoU rises by about 0.015, is that evidence the "
+                "fine-tuning helped?"
             ),
             "code": (
                 "adapted_test = pipe.evaluate(test_records)\n"
@@ -256,6 +366,10 @@ TEMPLATE = {
                 "comparison['water_iou'] = {{'baseline_no_water': frozen_test['baseline_no_water']['iou']['water'], 'frozen': frozen_test['model']['iou']['water'], 'adapted': adapted_test['model']['iou']['water']}}\n"
                 "for key, row in comparison.items():\n"
                 "    print({{key: row}})\n"
+                "delta_water_iou = adapted_test['model']['iou'][CLASS_NAMES[1]] - frozen_test['model']['iou'][CLASS_NAMES[1]]\n"
+                "# SWP-A: the direction is a recorded verdict, never an assert, so a BYOD run always reaches export and result.json.\n"
+                "comparison['verdict'] = {{'adapted_vs_frozen_water_iou': 'improved' if delta_water_iou > 0 else ('no change' if delta_water_iou == 0 else 'worse'), 'delta': round(delta_water_iou, 4)}}\n"
+                "print({{'verdict': comparison['verdict']}})\n"
                 "print({{'validation_water_iou': {{'frozen': frozen_val['model']['iou']['water'], 'adapted': adapted_val['model']['iou']['water']}}, 'validation_loss': {{'frozen': adapt_result['history'][0]['val_loss'], 'kept_epoch': adapt_result['history'][adapt_result['best_epoch']]['val_loss']}}}})\n"
                 "evaluation_report = {{\n"
                 "    'model': {{'id': MODEL_ID, 'revision': MODEL_REVISION, 'key': MODEL_KEY}},\n"
@@ -270,9 +384,20 @@ TEMPLATE = {
                 "}}\n"
                 "with open('outputs/{stem}_evaluation_report.json', 'w', encoding='utf-8') as f:\n"
                 "    json.dump(evaluation_report, f, indent=2)\n"
-                "assert adapt_result['history'][adapt_result['best_epoch']]['val_loss'] <= adapt_result['history'][0]['val_loss']\n"
-                "assert abs(adapted_val['model']['iou'][CLASS_NAMES[1]] - adapt_result['history'][adapt_result['best_epoch']]['val']['iou'][CLASS_NAMES[1]]) < 1e-2\n"
+                "# Contract integrity (not model quality): epoch 0 is a selection candidate, and re-scoring reproduces the kept epoch.\n"
+                "if adapt_result['history'][adapt_result['best_epoch']]['val_loss'] > adapt_result['history'][0]['val_loss']:\n"
+                "    raise RuntimeError('contract: the kept epoch has a higher validation loss than the frozen model, which epoch selection cannot produce')\n"
+                "if abs(adapted_val['model']['iou'][CLASS_NAMES[1]] - adapt_result['history'][adapt_result['best_epoch']]['val']['iou'][CLASS_NAMES[1]]) >= 1e-2:\n"
+                "    raise RuntimeError('contract: re-scoring the validation chips does not reproduce the kept epoch')\n"
                 "print({{'report': 'outputs/{stem}_evaluation_report.json'}})"
+            ),
+        },
+        {
+            "md": (
+                '**What to notice:** the `water_iou` row (baseline, frozen, adapted), `accuracy`, the `verdict` line, and the validation numbers beside the test numbers.\n\n<details><summary>Check '
+                'your reasoning</summary>Not on its own. In the recorded run the test water IoU moved from 0.7301 to 0.7458 (verdict *improved*) (F1 0.8440 → 0.8544, accuracy 0.9440 → '
+                '0.9468). With 12 chips, one seed and no dispersion estimate, a change of this size is within what a different draw of chips could produce; it shows '
+                'the contract ran and did no harm. A repeated split or more chips would be needed to call it a gain.</details>'
             ),
         },
         {
@@ -289,6 +414,7 @@ TEMPLATE = {
                 "the in-memory model (VER2). The cell asserts the same held-out positive-class IoU within 0.001 and score maps within 0.01 (VER4: float16 tolerances; on one device they are usually identical)."
             ),
             "code": (
+                "import importlib.metadata\n"
                 "import platform\n"
                 "import shutil\n\n"
                 "import tifffile\n\n"
@@ -330,6 +456,7 @@ TEMPLATE = {
                 "    'runtime': {{'python': platform.python_version(), 'torch': torch.__version__, 'timm': timm.__version__, 'lightning': lightning.__version__, 'tifffile': tifffile.__version__, 'terratorch': importlib.metadata.version('terratorch')}},\n"
                 "    'data_source': data_source,\n"
                 "    'comparison': comparison,\n"
+                "    'verdict': comparison['verdict'],\n"
                 "    'artifact': {{'dir': str(artifact_dir), 'sha256': artifact_manifest['files'][0]['sha256'], 'bytes': artifact_manifest['files'][0]['bytes']}},\n"
                 "    'reload_parity': parity,\n"
                 "}}\n"
@@ -341,11 +468,19 @@ TEMPLATE = {
                 "        print(f'  - {{path.as_posix()}} ({{path.stat().st_size / 1024:.1f}} KB)')"
             ),
         },
+        {
+            "md": (
+                "**What to notice:** the water fraction of the three unlabelled example chips, the artifact's size and tensor count, and `reload_parity`.\n\n<details><summary>Check "
+                'your reasoning</summary>The example chips carry no labels, so their water fractions are a sanity check only. In the recorded run the 46-tensor, about '
+                '60 MB adapter reloaded into a fresh pipeline with identical held-out metrics (`positive_iou_diff` 0.0, `metrics_identical` True, `max_abs_score_diff` '
+                '0.0).</details>'
+            ),
+        },
     ],
     "closing": (
         "## Interpretation and limits\n\n"
-        "On 12 held-out chips from the official test split the packaged flood model finds water with an IoU near 0.6 and a "
-        "recall above its precision, against a no-water baseline that scores 0; a bounded fine-tuning of its neck, decoder "
+        "On 12 held-out chips from the official test split the packaged flood model finds water with an IoU near 0.73 (F1 0.84 "
+        "in the recorded run), against a no-water baseline that scores 0; a bounded fine-tuning of its neck, decoder "
         "and head on 24 chips, selected by validation loss with the frozen model as a candidate, leaves those numbers about "
         "where they were. That is the claim: the adaptation contract runs end to end on real labelled multispectral chips, "
         "the pickle is audited and converted rather than served, and the artifact that carries the change is 60 MB and "
@@ -370,6 +505,37 @@ TEMPLATE = {
         "**Optional experiments (they do not affect the default path):** set `TRAINABLE = 'decoder+last_block'`; raise "
         "`EPOCHS` and watch the validation loss turn; try `LEARNING_RATE = 1e-4` to see the frozen model win every epoch; or "
         "bring your own labelled chips through BYOD and read the baseline before the adapted number.\n\n"
+        '## Troubleshooting\n\n- **Section 1 stops with "This notebook needs a Linux x86_64 runtime"** — you are on Windows, macOS or an ARM machine. Use Google '
+        'Colab, Kaggle or a Linux x86_64 Jupyter server.\n- **The uv wheel fails its size/SHA-256 check, or a download in Section 1 times out** — run Section 1 '
+        'again; a complete environment built from the same lock is reused, an incomplete one is finished. If it repeats, the network is blocking or altering '
+        '`files.pythonhosted.org` or `pypi.org`.\n- **"The isolated environment\'s Python process exited"** — usually out of memory. Restart the session and '
+        'choose **Run all**.\n- **You re-ran Section 1 on its own** — nothing is lost: it keeps the running worker and every variable, so the cells after it '
+        'keep working. After a session restart, run from the top.\n- **Section 3 reports a size or SHA-256 mismatch, or cannot reach the Hub** — the message '
+        'names the file. Delete it from the snapshot folder Section 3 prints and run Section 3 again.\n- **Section 3 stops during the pickle audit or '
+        'conversion** — the audit refuses any global outside the allow-list and names it; the downloaded checkpoint is not the pinned one. Delete the snapshot '
+        'folder and run Section 3 again.\n- **Section 4 reports a size or SHA-256 mismatch for a chip** — the message names the object; a download from '
+        '`storage.googleapis.com/sen1floods11` was cut short or altered. Run Section 4 again.\n- **CUDA out of memory in Section 6** — another notebook holds '
+        "the GPU, or `TRAINABLE = 'decoder+last_block'` with a larger `BATCH_SIZE` exceeds a T4. Restart the session, keep `BATCH_SIZE = 2`, and choose **Run all**.\n- "
+        '**Section 5 prints `restored_pinned_base`** — you re-ran it after Section 6; the adapted tensors were put back to the base. Re-run Sections 6–8 in order.\n- '
+        '**BYOD: a band, shape or label refusal** — the message names the rule; chips must be six-band 512 × 512 GeoTIFFs in the documented band order (13-band '
+        'Sentinel-2 L1C files are reduced automatically) with masks of 0 / 1 / −1, and at least four chips need some water.\n- **BYOD: "BYOD_PATH … does not '
+        'exist"** — the path is relative to the working directory printed in the message.\n- **BYOD: "the upload dialog exists only in Google Colab"** — on '
+        'Kaggle or Jupyter, put the zip (or folder) in the runtime and set `BYOD_PATH` to its path.\n- **BYOD: "Upload exactly one .zip file"** — the dialog was '
+        "cancelled or several files were chosen; run the cell again.\n\n## Glossary\n\n- **Sentinel-2 / Sen1Floods11:** ESA's optical satellites; Sen1Floods11 is a "
+        'dataset of flood-event chips with hand-drawn water labels over eleven events.\n- **Reflectance and the six bands:** the fraction of sunlight reflected '
+        'in blue, green, red, narrow NIR, SWIR 1 and SWIR 2; water is dark in NIR and SWIR.\n- **Segmentation mask / ignore class:** one class per pixel; −1 '
+        'marks cloud or no-data pixels that are excluded from training and scoring.\n- **No-water baseline:** predicting *land* for every pixel; its accuracy '
+        'equals the land fraction and its water IoU is 0.\n- **IoU, precision, recall, F1:** overlap of predicted and true water; the share of predicted water '
+        'that is real; the share of real water found; their harmonic mean.\n- **Encoder, neck, decoder, head:** the ViT-L backbone; the pyramid that rescales '
+        'its features; the UPerNet that upsamples them to pixels; the final two-class layer.\n- **Frozen / adapted / pinned base:** the packaged model; the '
+        'model after Section 6; the verified packaged weights every adaptation starts from (`restore_pinned_base` in Sections 5 and 6).\n- **BatchNorm statistics:** running means and '
+        'variances in the decoder; kept fixed because two-chip batches would corrupt them.\n- **Validation-loss selection:** keeping the epoch with the lowest '
+        'validation loss, with the frozen model as epoch 0.\n- **Pickle audit / safetensors:** the upstream checkpoint is a pickle that could run code when '
+        'loaded; it is statically checked against an allow-list and converted once to safetensors, a format that stores only tensors.\n- **Isolated '
+        'environment:** the separate Python environment Section 1 builds from the hash lock; every later cell runs there.\n\n## Conclusion (your notes)\n\nComplete '
+        "these in your own words; the recorded run's values are in the **Check your reasoning** answers above.\n\n- The frozen model's test water IoU was ___ "
+        "against the no-water baseline's ___.\n- Bounded fine-tuning moved it to ___, which I read as ___ because ___.\n- The number I would not trust on its own "
+        'is ___, because ___.\n- Before adapting on my own chips I would check the band order and scaling, split by ___, and compare against ___.\n\n'
         "## References\n\n"
         "- Repository README: https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/README.md\n"
         "- Repository model card: https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/MODEL_CARD.md\n"
