@@ -1,6 +1,6 @@
 """Static release-asset validation for the Prithvi-EO-2.0 flood-segmentation DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1-PAR3).
 
@@ -48,10 +48,20 @@ CODE_MARKERS = (
     "BYOD_PATH = ''",
     "uploaded = files.upload() or {}",
     "splits = fetch_sample_dataset(cache_dir='weights/sen1floods11')",
-    "splits = split_dataset(load_byod_dataset(byod_path), seed=0)",
+    "splits, split_rule = split_byod(load_byod_dataset(byod_path), byod_rows, seed=0)",
     "dataset_report = dataset_manifest(",
     "write_sample_pair(test_records[0], 'outputs/prithvi_flood_segmentation_sample_chip.tif', 'outputs/prithvi_flood_segmentation_sample_label.tif')",
     "validate_dataset(records)",
+    # Review fixes (2026-10-02 review, FL-M3 / FL-m1 / FL-m2 / FL-m3 / FL-m5): stale exports cleared, the BYOD minimum
+    # derived and printed, files checked before decoding, group/split-aware BYOD split, padded refusal probes, the
+    # figure, and the example chips' overlap with the sample printed
+    "for stale in sorted(Path('outputs').glob('prithvi_flood_segmentation_*')):",
+    "BYOD_MINIMUM = byod_minimum_records()",
+    "byod_rows = read_byod_table(byod_path)",
+    "probe_fill = (test_records[1:] + train_records + val_records)[:MIN_RECORDS - 1]",
+    "'chip': record.get('source_id', record['id'])",
+    "fig, axes = plt.subplots(",
+    "'also_a_sample_chip': sample_role.get(",
     # Stage 5: frozen model against the no-water baseline
     "frozen_test = pipe.evaluate(test_records)",
     "restored_tensors = restore_pinned_base(pipe)",
@@ -114,10 +124,10 @@ INSTALL_CELL_MARKER = "# dimer: kernel cell"
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.0; see docs/release-verification.md for the release gate.
+# Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 # WORKSHOP-mode notebooks (DIMER Notebook Specification 2.2). They carry their own reference source, dependency lock,
@@ -258,6 +268,7 @@ FORBIDDEN_PATTERNS = (
         ),
     ),
     ("archive extractall", re.compile(r"\.extractall\s*\(")),
+    ("sample-only key indexed on a record (FL-M3: BYOD records have no source_id)", re.compile(r"record\[['\"]source_id['\"]\]")),
     ("notebook magic or shell escape", re.compile(r"(?m)^\s*[%!]|get_ipython\(\)")),
 )
 

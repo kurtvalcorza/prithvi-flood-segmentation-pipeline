@@ -3,7 +3,7 @@
 `tutorials/prithvi_flood_segmentation_colab.ipynb` (`E2E`, **standalone** carrier) is a **release candidate** until the
 exact notebook revision has executed top-to-bottom in a clean supported runtime. Unit tests, JSON validation, code-cell
 compilation, the generator parity checks and `tools/validate_release_assets.py` are necessary checks but are **not**
-runtime evidence under DIMER Notebook Specification 2.0 (REL8). This file is the durable release-gate record.
+runtime evidence under DIMER Notebook Specification 2.2 (REL8). This file is the durable release-gate record.
 
 ## Automatic coverage (static, every pull request)
 
@@ -12,14 +12,14 @@ CI runs `tools/validate_release_assets.py`, which checks:
 - notebook JSON parses; every code cell compiles as plain Python (no `%`/`!` magics); no persisted outputs or
   execution counts; no unresolved placeholder markers; every code cell is preceded by an explanatory markdown cell;
 - exactly one tutorial notebook, named in `tutorials/README.md` with its `E2E` profile, the notebook-spec version
-  and the standalone carrier; `metadata.dimer` declares that profile, spec `2.0`, a §3.3 pedagogical mode,
+  and the standalone carrier; `metadata.dimer` declares that profile, spec `2.2`, a §3.3 pedagogical mode,
   `standalone: true` and `generated_from` (repository, revision, module SHA-256, generator);
 - the standalone carrier (ST1–ST8, PAR1–PAR4): no clone, repository install or repository import on the primary
   path; one cell per carried module (`pipeline.py`, `samples.py`, `metrics.py`), each equal to its source after the
   generator's documented rewrites; the inline `MANIFEST` equal to the committed snapshot manifest and the inline
   `PINS` equal to the `pyproject.toml` runtime pins; the notebook byte-identical (on LF) to
-  `tools/build_notebook.py` output for its recorded revision; the pinned-install cell with its
-  restart-on-stale-import guard; `NOTEBOOK_SOURCE` recorded in exports;
+  `tools/build_notebook.py` output for its recorded revision; the generator /2.2 kernel cell that builds the isolated
+  uv environment from the hash lock (no in-kernel install, no restart); `NOTEBOOK_SOURCE` recorded in exports;
 - `MODEL_ID`/`MODEL_REVISION` bound only in the carried module cell (and repeated in the inline manifest, which the
   notebook asserts against the module before fetching), the revision a 40-hex immutable commit, and the same
   identity string in `README.md`, `MODEL_CARD.md` and `docs/WEIGHTS.md` with no stray revisions;
@@ -71,8 +71,10 @@ Before changing the registry status from `Candidate` to `Release-grade`:
 4. verify that Section 1 reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision recorded in
    `metadata.dimer.generated_from` and that the installed core package versions equal the inline `PINS`
    (= `pyproject.toml`): `torch==2.14.0`, `torchvision==0.29.0`, `terratorch==1.2.13`, `tifffile==2026.9.15`,
-   `numpy==2.5.3`, `safetensors==0.8.0`, `huggingface-hub==1.32.0` (an interpreter restart after the install is
-   expected where the runtime's preinstalled torch or numpy differ from the pins);
+   `numpy==2.5.3`, `safetensors==0.8.0`, `huggingface-hub==1.32.0`. Since generator /2.2 the pins come from the
+   hash lock `tutorials/requirements-colab.lock.txt` and are installed into an isolated uv environment, never into
+   the kernel: `Run all` must complete in **one pass with no restart** (RUN1, RUN10, ENV6); a run that needed a
+   restart is not release evidence (review FL-M1);
 5. verify every default-path stage completes:
    - pinned runtime installed from the inline `PINS` with no GitHub access;
    - the three carried module cells execute (defining `PrithviFloodPipeline`, `audit_pickle`, `convert_model`,
@@ -92,7 +94,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
      and `outputs/prithvi_flood_segmentation_sample_pairs.csv`, and three refusals (five-band chip, unknown label
      class, reflectance out of range);
    - the no-water baseline and the frozen model on the test chips (on the sample: baseline accuracy ≈ 0.80, frozen
-     water IoU ≈ 0.59, F1 ≈ 0.74) and the validation chips (water IoU ≈ 0.86);
+     water IoU ≈ 0.73, F1 ≈ 0.84, precision above recall) and the validation chips (water IoU ≈ 0.86);
    - `pipe.adapt` printing epoch 0 as the frozen model, 15,082,242 trainable of 318,968,580 parameters, 48 steps,
      frozen BatchNorm statistics, and a four-epoch history with validation loss ≈ 0.13 → ≈ 0.12 at the kept epoch;
    - `pipe.evaluate` on the test chips with the three-way comparison and
@@ -141,7 +143,7 @@ runtime, not general estimates.
 
 ## Current status
 
-**Release-grade.** The `E2E` notebook blob `a61580e4` (committed at `b6240ae`, the idempotent-scaling fix) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok (1 restart after install cell), 392.9 s, 106 files, 2664 MB fetched and digest-verified inside the notebook, the checkpoint converted in the notebook) with no repository checkout — the REL1/REL10 supported-runtime evidence this file gates on. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
+**Candidate.** The tutorial was regenerated (generator `build_notebook.py/2.2`: isolated uv environment from a hash lock, no in-kernel install; the 2026-10-05 sweep fixes; the 2026-10-02 review fixes FL-M1..M5 / FL-m1..m7; the `google.colab` stub spec fix), so it is a new blob with no hosted record yet (REL14). History: the blob `a61580e4` (committed at `b6240ae`, the idempotent-scaling fix) executed in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok only after 1 restart after the install cell, 392.9 s, 106 files, 2664 MB fetched and digest-verified inside the notebook, the checkpoint converted in the notebook) with no repository checkout and was then marked Release-grade; a two-pass run does not meet RUN1/RUN10/ENV6 (review FL-M1), so that record covers only that blob. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
 
 ## Philippines flood-mapping capstone (`WORKSHOP`, Notebook Spec 2.2)
 

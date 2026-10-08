@@ -1,4 +1,4 @@
-"""Per-repository template for tools/build_notebook.py (NOTEBOOK_SPEC 2.0 §4 standalone carrier).
+"""Per-repository template for tools/build_notebook.py (NOTEBOOK_SPEC 2.2 §4 standalone carrier).
 
 Only the task-specific prose and stage cells live here. Runtime install, the embedded pipeline
 modules (pipeline.py, samples.py, metrics.py), and the model pin/stage/verify cells are produced
@@ -79,8 +79,11 @@ TEMPLATE = {
         "labelled chips — as `BYOD_PATH` (a path in the runtime, which works on Colab, Kaggle and Jupyter) or, when it is empty, "
         "through the Colab upload dialog — as a zip (or folder) holding `pairs.csv` (columns `id`, `image`, `label`) beside six-band 512 × 512 GeoTIFF chips "
         "(blue, green, red, narrow NIR, SWIR 1, SWIR 2 — reflectance in [0, 1] or × 10 000) and single-band label rasters "
-        "(0 = no water, 1 = water, −1 = no data); at least four chips with some water. Your chips are split by seed into "
-        "training, validation and test sets and flow through the same contract — validation, frozen baseline, adaptation, "
+        "(0 = no water, 1 = water, −1 = no data); at least **seven** labelled chips, with some water among them (the seeded "
+        "split keeps four for training, one for validation and two for test). An optional `group` column (the scene or event "
+        "a chip was cut from) keeps each group in one role, and an optional `split` column (`train`, `validation`, `test`) sets "
+        "the roles yourself; without either, chips are split one by one with a printed warning. Your chips then flow through "
+        "the same contract — validation, frozen baseline, adaptation, "
         "held-out evaluation, inference, artifact export and reload parity. The expected schema, the ceilings and the privacy "
         "guidance are stated in the Prerequisites and in Section 4, and uploaded files stay inside this runtime. BYOD is optional "
         "and never part of the default path."
@@ -167,65 +170,174 @@ TEMPLATE = {
                 "bands, scaled from reflectance × 10 000 to reflectance, and its no-data replaced by 0, exactly as the upstream "
                 "datamodule does; each `LabelHand` mask keeps −1 for cloud / no-data, which every metric ignores. `dataset_manifest` "
                 "validates every split, checks that no chip appears twice and records a digest.\n\n"
-                "Look for: 24 / 8 / 12 chips with water fractions around 0.2..0.4, a written sample pair "
-                "(`outputs/{stem}_sample_chip.tif` + `_sample_label.tif`, the BYOD shape), and three refusal probes — a five-band "
-                "chip, a label with an unknown class, a chip with reflectance far outside range — each rejected before the model runs.\n\n"
+                "With `USE_BYOD = True` the cell reads your `pairs.csv`, checks that every file it names is present and is a "
+                "GeoTIFF (a mistake names the row, the file and the fix), and splits your chips: by your `split` column if there is "
+                "one, else by your `group` column so a scene or event never sits in two roles, else chip by chip with a warning. "
+                "The per-chip split needs at least seven chips (`byod_minimum_chips`). Every run of this cell first removes this "
+                "notebook's earlier exports from `outputs/`, so the files there always describe the current run.\n\n"
+                "Look for: 24 / 8 / 12 chips from the official splits (`split_rule`) with water fractions around 0.2..0.4, a written "
+                "sample pair (`outputs/{stem}_sample_chip.tif` + `_sample_label.tif`, the BYOD shape), and three refusal probes — a "
+                "five-band chip, a label with an unknown class, a chip with reflectance far outside range — each padded with other "
+                "chips to the dataset minimum and rejected for its own rule before the model runs.\n\n"
                 "*Evaluation practice.* **Predict before running:** cloud and no-data pixels are labelled −1. What would happen to the "
                 "baseline's accuracy if they were counted as land?"
             ),
             "code": (
-                "import json\n"
-                "import os\n"
-                "from pathlib import Path\n\n"
-                "import numpy as np\n\n"
-                "USE_BYOD = False  # @param {{type:\"boolean\"}}\n"
-                "# A .zip or a folder already in the runtime (works on Colab, Kaggle and Jupyter); empty = the Colab upload dialog.\n"
-                "BYOD_PATH = ''  # @param {{type:\"string\"}}\n\n"
+                'import csv\n'
+                'import io\n'
+                'import json\n'
+                'import os\n'
+                'import random\n'
+                'import shutil\n'
+                'import zipfile\n'
+                'from pathlib import Path\n'
+                '\n'
+                'import numpy as np\n'
+                'import tifffile\n'
+                '\n'
+                'USE_BYOD = False  # @param {{type:"boolean"}}\n'
+                '# A .zip or a folder already in the runtime (works on Colab, Kaggle and Jupyter); empty = the Colab upload dialog.\n'
+                'BYOD_PATH = \'\'  # @param {{type:"string"}}\n'
+                '\n'
                 "os.makedirs('outputs', exist_ok=True)\n"
-                "if USE_BYOD:\n"
-                "    if BYOD_PATH.strip():\n"
-                "        byod_path = Path(BYOD_PATH.strip()).expanduser()\n"
-                "        if not byod_path.exists():\n"
+                "# A re-run (for example with USE_BYOD = True) first removes this notebook's earlier exports, so outputs/ describes this run only.\n"
+                "for stale in sorted(Path('outputs').glob('{stem}_*')):\n"
+                '    shutil.rmtree(stale) if stale.is_dir() else stale.unlink()\n'
+                '\n'
+                '\n'
+                'def byod_minimum_records(val_fraction=0.2, test_fraction=0.25):\n'
+                '    """The smallest dataset the seeded per-chip split accepts: it keeps MIN_RECORDS chips for training."""\n'
+                '    n = MIN_RECORDS\n'
+                '    while n - max(1, round(n * test_fraction)) - round(n * val_fraction) < MIN_RECORDS:\n'
+                '        n += 1\n'
+                '    return n\n'
+                '\n'
+                '\n'
+                'BYOD_MINIMUM = byod_minimum_records()\n'
+                '\n'
+                '\n'
+                'def read_byod_table(path):\n'
+                '    """Read pairs.csv and check every file it names before anything is decoded, so a mistake names the row, the file and the fix."""\n'
+                '    source = Path(path)\n'
+                '    if source.is_dir():\n'
+                '        present = lambda name: bool(name) and (source / name).is_file()  # noqa: E731\n'
+                '        read = lambda name: (source / name).read_bytes()  # noqa: E731\n'
+                "    elif source.is_file() and source.suffix.lower() == '.zip':\n"
+                '        archive = zipfile.ZipFile(source)\n'
+                "        members = {{Path(n).name: n for n in archive.namelist() if not n.endswith('/')}}\n"
+                '        present = lambda name: name in members  # noqa: E731\n'
+                '        read = lambda name: archive.read(members[name])  # noqa: E731\n'
+                '    else:\n'
+                "        raise ValueError(f'{{source.name}}: give a .zip or a folder holding pairs.csv and the GeoTIFF files.')\n"
+                "    if not present('pairs.csv'):\n"
+                "        raise ValueError(f'{{source.name}} has no pairs.csv: add one with the columns id, image, label (and optionally group or split).')\n"
+                "    rows = list(csv.DictReader(io.StringIO(read('pairs.csv').decode('utf-8'))))\n"
+                '    for row in rows:\n'
+                "        for column, kind in (('image', 'a six-band 512 x 512 GeoTIFF'), ('label', 'a single-band GeoTIFF of 0 / 1 / -1')):\n"
+                "            name = (row.get(column) or '').strip()\n"
+                '            if not present(name):\n'
+                '                raise ValueError(f"pairs.csv row {{row.get(\'id\')!r}}: {{column}} file {{name!r}} is listed but not in {{source.name}}; add the file or correct the row.")\n'
+                '            try:\n'
+                '                tifffile.TiffFile(io.BytesIO(read(name))).close()\n'
+                '            except Exception:\n'
+                '                raise ValueError(f"pairs.csv row {{row.get(\'id\')!r}}: {{column}} file {{name!r}} is not a readable GeoTIFF; save it as {{kind}}.") from None\n'
+                "    if 'split' not in (rows[0] if rows else {{}}) and len(rows) < BYOD_MINIMUM:\n"
+                "        raise ValueError(f'pairs.csv lists {{len(rows)}} chips; bring at least {{BYOD_MINIMUM}} labelled chips (the seeded split keeps {{MIN_RECORDS}} for training).')\n"
+                '    return rows\n'
+                '\n'
+                '\n'
+                'def split_byod(records, rows, seed=0, val_fraction=0.2, test_fraction=0.25):\n'
+                '    """A `split` column fixes the roles; a `group` column (scene or event) keeps each group in one role; without\n'
+                '    either, the carried seeded per-chip split runs and a warning is printed."""\n'
+                '    columns = set(rows[0]) if rows else set()\n'
+                "    by_id = {{row['id']: row for row in rows}}\n"
+                "    if not columns & {{'split', 'group'}}:\n"
+                "        print({{'warning': 'pairs.csv has no group or split column, so chips are split one by one: chips cut from one scene or event can land in training and test. Add a group column to keep them together.'}})\n"
+                "        return split_dataset(records, seed=seed, val_fraction=val_fraction, test_fraction=test_fraction), 'per chip (seeded; no group column)'\n"
+                "    if 'group' in columns:\n"
+                "        missing = [r['id'] for r in records if not (by_id[r['id']].get('group') or '').strip()]\n"
+                '        if missing:\n'
+                "            raise ValueError(f'pairs.csv: {{len(missing)}} chips have no group (first: {{missing[0]!r}}); give every chip a group or remove the column.')\n"
+                "        records = [{{**r, 'region': by_id[r['id']]['group'].strip()}} for r in records]\n"
+                "    checked = validate_dataset(records)['records']\n"
+                "    if 'split' in columns:\n"
+                '        role_of = {{}}\n'
+                '        for r in checked:\n'
+                "            role = (by_id[r['id']].get('split') or '').strip().lower()\n"
+                '            if role not in ROLES:\n'
+                '                raise ValueError(f"pairs.csv row {{r[\'id\']!r}}: split {{role!r}} must be one of {{\', \'.join(ROLES)}}.")\n'
+                "            role_of[r['id']] = role\n"
+                "        rule = 'by the split column'\n"
+                '    else:\n'
+                "        groups = sorted({{r['region'] for r in checked}})\n"
+                '        if len(groups) < 3:\n'
+                "            raise ValueError(f'{{len(groups)}} groups; a group split needs at least 3 (one each for training, validation and test).')\n"
+                '        random.Random(seed).shuffle(groups)\n'
+                '        n_test = max(1, round(len(groups) * test_fraction))\n'
+                '        n_val = max(1, round(len(groups) * val_fraction))\n'
+                "        group_role = {{g: 'test' if i < n_test else 'validation' if i < n_test + n_val else 'train' for i, g in enumerate(groups)}}\n"
+                "        role_of = {{r['id']: group_role[r['region']] for r in checked}}\n"
+                "        rule = f'by group ({{len(groups)}} groups)'\n"
+                "    splits = {{role: [r for r in checked if role_of[r['id']] == role] for role in ROLES}}\n"
+                '    empty = [role for role, part in splits.items() if not part]\n'
+                '    if empty:\n'
+                "        raise ValueError(f'the split {{rule}} leaves no chip for {{empty}}; every role needs at least one.')\n"
+                "    if len(splits['train']) < MIN_RECORDS:\n"
+                '        raise ValueError(f"the split {{rule}} leaves {{len(splits[\'train\'])}} training chips; at least {{MIN_RECORDS}} are required.")\n'
+                '    check_split_disjoint(splits)\n'
+                '    return splits, rule\n'
+                '\n'
+                '\n'
+                'if USE_BYOD:\n'
+                '    if BYOD_PATH.strip():\n'
+                '        byod_path = Path(BYOD_PATH.strip()).expanduser()\n'
+                '        if not byod_path.exists():\n'
                 "            raise FileNotFoundError(f'BYOD_PATH {{BYOD_PATH!r}} does not exist (relative paths start at {{Path.cwd()}}): give a .zip or a folder holding pairs.csv and the GeoTIFF files.')\n"
-                "        file_name = byod_path.name\n"
-                "    else:\n"
-                "        try:\n"
-                "            from google.colab import files\n"
-                "        except ImportError:\n"
+                '        file_name = byod_path.name\n'
+                '    else:\n'
+                '        try:\n'
+                '            from google.colab import files\n'
+                '        except ImportError:\n'
                 "            raise RuntimeError('USE_BYOD is True but BYOD_PATH is empty, and the upload dialog exists only in Google Colab: on Kaggle or Jupyter put the zip (or folder) in the runtime and set BYOD_PATH to its path.') from None\n"
-                "        uploaded = files.upload() or {{}}\n"
-                "        if len(uploaded) != 1:\n"
+                '        uploaded = files.upload() or {{}}\n'
+                '        if len(uploaded) != 1:\n'
                 "            raise ValueError(f'Upload exactly one .zip file (received {{len(uploaded)}}; a cancelled dialog sends none): run this cell again.')\n"
-                "        file_name, payload = next(iter(uploaded.items()))\n"
+                '        file_name, payload = next(iter(uploaded.items()))\n'
                 "        if not file_name.lower().endswith('.zip'):\n"
                 "            raise ValueError(f'{{file_name}}: upload one .zip holding pairs.csv and the GeoTIFF files.')\n"
                 "        byod_path = Path('work') / file_name\n"
-                "        byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
-                "        byod_path.write_bytes(payload)\n"
-                "    splits = split_dataset(load_byod_dataset(byod_path), seed=0)\n"
+                '        byod_path.parent.mkdir(parents=True, exist_ok=True)\n'
+                '        byod_path.write_bytes(payload)\n'
+                '    byod_rows = read_byod_table(byod_path)\n'
+                '    splits, split_rule = split_byod(load_byod_dataset(byod_path), byod_rows, seed=0)\n'
                 "    data_source = 'BYOD (' + file_name + ')'\n"
-                "else:\n"
+                'else:\n'
                 "    splits = fetch_sample_dataset(cache_dir='weights/sen1floods11')\n"
-                "    data_source = SAMPLE_LABEL_SOURCE\n"
-                "train_records, val_records, test_records = splits['train'], splits['validation'], splits['test']\n\n"
+                "    split_rule = 'the official Sen1Floods11 splits'\n"
+                '    data_source = SAMPLE_LABEL_SOURCE\n'
+                "train_records, val_records, test_records = splits['train'], splits['validation'], splits['test']\n"
+                '\n'
                 "dataset_report = dataset_manifest({{'train': train_records, 'validation': val_records, 'test': test_records}})\n"
-                "print({{'data_source': data_source, 'splits': {{k: v['n_records'] for k, v in dataset_report['splits'].items()}}, 'disjoint': dataset_report['disjoint'], 'digest': dataset_report['digest'][:16] + '...'}})\n"
+                "print({{'data_source': data_source, 'split_rule': split_rule, 'byod_minimum_chips': BYOD_MINIMUM, 'splits': {{k: v['n_records'] for k, v in dataset_report['splits'].items()}}, 'disjoint': dataset_report['disjoint'], 'digest': dataset_report['digest'][:16] + '...'}})\n"
                 "for name, part in dataset_report['splits'].items():\n"
                 "    print({{name: {{'water_fraction': part['class_pixel_fraction']['water'], 'ignored_pixels': part['ignored_pixels'], 'regions': part['regions']}}}})\n"
                 "print({{'first_test_chip': validate_inputs(test_records[0])}})\n"
                 "sample_pair = write_sample_pair(test_records[0], 'outputs/{stem}_sample_chip.tif', 'outputs/{stem}_sample_label.tif')\n"
-                "print({{'sample_pair': sample_pair, 'pairs_csv': str(write_dataset_csv(test_records, 'outputs/{stem}_sample_pairs.csv'))}})\n\n"
+                "print({{'sample_pair': sample_pair, 'pairs_csv': str(write_dataset_csv(test_records, 'outputs/{stem}_sample_pairs.csv'))}})\n"
+                '\n'
                 "print({{'validation': INPUT_SCHEMA['validation']}})\n"
-                "probes = {{\n"
-                "    'five-band chip': [{{**test_records[0], 'image': test_records[0]['image'][:5]}}, *test_records[1:4]],\n"
-                "    'unknown label class': [{{**test_records[0], 'label': np.where(test_records[0]['label'] == 1, 7, test_records[0]['label'])}}, *test_records[1:4]],\n"
-                "    'reflectance out of range': [{{**test_records[0], 'image': test_records[0]['image'] * 50000.0}}, *test_records[1:4]],\n"
-                "}}\n"
-                "for name, records in probes.items():\n"
-                "    try:\n"
-                "        validate_dataset(records)\n"
+                '# Each probe is padded with other chips up to the dataset minimum, so it is refused for its own rule, never for its size.\n'
+                'probe_fill = (test_records[1:] + train_records + val_records)[:MIN_RECORDS - 1]\n'
+                'probes = {{\n'
+                "    'five-band chip': [{{**test_records[0], 'image': test_records[0]['image'][:5]}}, *probe_fill],\n"
+                "    'unknown label class': [{{**test_records[0], 'label': np.where(test_records[0]['label'] == 1, 7, test_records[0]['label'])}}, *probe_fill],\n"
+                "    'reflectance out of range': [{{**test_records[0], 'image': test_records[0]['image'] * 50000.0}}, *probe_fill],\n"
+                '}}\n'
+                'for name, records in probes.items():\n'
+                '    try:\n'
+                '        validate_dataset(records)\n'
                 "        print({{'probe': name, 'verdict': 'accepted'}})\n"
-                "    except (TypeError, ValueError) as exc:\n"
+                '    except (TypeError, ValueError) as exc:\n'
                 "        print({{'probe': name, 'rejected': str(exc)[:110]}})"
             ),
         },
@@ -246,11 +358,15 @@ TEMPLATE = {
                 "held-out chip into one confusion matrix (−1 pixels excluded) and reports the per-class IoU, mean IoU, accuracy, "
                 "and the water class's precision, recall and F1; the **no-water baseline** — every pixel predicted as land — is "
                 "scored on the same pixels, so its accuracy is exactly the land fraction and its water IoU is 0.\n\n"
+                "**Decision rule and who owns the threshold.** Each pixel takes the class with the higher score (argmax, the same "
+                "as a 0.5 water score); no threshold is tuned here. Choosing a water threshold — trading missed water against "
+                "false alarms — and calibrating the scores belong to whoever deploys the model, on validation chips from their own "
+                "area and sensor; this notebook does neither.\n\n"
                 "Look for: a water IoU well above 0 on the test chips (0.730, F1 0.844, in the recorded Kaggle T4 run of "
                 "2026-09-25), a validation water IoU around 0.86, precision against recall, and per-chip water fractions that track "
                 "the labels. These are sample-sanity numbers on 12 and 8 chips, not the benchmark. If you re-run this cell after "
                 "Section 6, it first puts the adapted tensors back to the pinned base, so *frozen* always means the packaged model.\n\n"
-                "**Predict before running:** the packaged model was fine-tuned on Sen1Floods11. Will the test chips (seven regions) or "
+                "**Predict before running:** the packaged model was fine-tuned on Sen1Floods11. Will the test chips (ten regions) or "
                 "the validation chips be easier for it?"
             ),
             "code": (
@@ -282,7 +398,7 @@ TEMPLATE = {
                 "frozen_predictions = pipe.predict(test_records)\n"
                 "for record, pred in list(zip(test_records, frozen_predictions['predictions']))[:6]:\n"
                 "    labelled = record['label'] >= 0\n"
-                "    print({{'chip': record['source_id'], 'water_label': round(float((record['label'] == 1).sum() / labelled.sum()), 3), 'water_predicted': pred['class_fraction']['water'], 'ignored': int((~labelled).sum())}})\n"
+                "    print({{'chip': record.get('source_id', record['id']), 'water_label': round(float((record['label'] == 1).sum() / labelled.sum()), 3), 'water_predicted': pred['class_fraction']['water'], 'ignored': int((~labelled).sum())}})\n"
                 "print({{'decision_rule': frozen_predictions['decision_rule'], 'scores_shape': frozen_predictions['predictions'][0]['scores'].shape}})"
             ),
         },
@@ -290,8 +406,9 @@ TEMPLATE = {
             "md": (
                 '**What to notice:** `baseline_no_water_test` beside `frozen_test`, precision against recall, the validation IoU, and the per-chip water fractions.\n\n<details><summary>Check '
                 "your reasoning</summary>Validation. In the recorded run the frozen test water IoU was 0.7301 (F1 0.8440, accuracy 0.9440 against the baseline's "
-                '0.8049) while validation reached 0.8614. Twelve test chips from seven regions include harder scenes; differences between splits this small say more '
-                'about which chips were drawn than about the model.</details>'
+                '0.8049) while validation reached 0.8614. Twelve test chips from ten regions include harder scenes; differences between splits this small say more '
+                'about which chips were drawn than about the model. Note also the direction of the errors: test precision 0.9251 is above recall 0.776, so '
+                'the frozen model misses some water rather than inventing it.</details>'
             ),
         },
         {
@@ -351,9 +468,10 @@ TEMPLATE = {
                 "validation loss is no higher than the frozen model's (epoch 0 is a candidate), and re-scoring the validation chips "
                 "reproduces the kept epoch's positive-class IoU within 0.01 (float16 kernels are not bit-reproducible across batch "
                 "sizes) — and records the test direction as a **verdict** (`improved`, `no change` or `worse`) instead of asserting one: on this sample the water IoU moved from 0.730 to 0.746 in the recorded run, a sample-sanity "
-                "observation on 12 chips with no dispersion estimate, not a quality claim. Twelve chips from seven regions "
+                "observation on 12 chips with no dispersion estimate, not a quality claim. Twelve chips from ten regions "
                 "cannot separate a real gain from noise; with your own chips from a new sensor or region, the gap between "
-                "frozen and adapted is the number to watch.\n\n"
+                "frozen and adapted is the number to watch. A figure then shows two test chips in false colour beside their label, the "
+                "frozen and adapted masks, and where the adapted mask finds water (blue), misses it (red) or invents it (amber).\n\n"
                 "*Evaluation practice.* **Predict before running:** if the test water IoU rises by about 0.015, is that evidence the "
                 "fine-tuning helped?"
             ),
@@ -389,23 +507,56 @@ TEMPLATE = {
                 "    raise RuntimeError('contract: the kept epoch has a higher validation loss than the frozen model, which epoch selection cannot produce')\n"
                 "if abs(adapted_val['model']['iou'][CLASS_NAMES[1]] - adapt_result['history'][adapt_result['best_epoch']]['val']['iou'][CLASS_NAMES[1]]) >= 1e-2:\n"
                 "    raise RuntimeError('contract: re-scoring the validation chips does not reproduce the kept epoch')\n"
-                "print({{'report': 'outputs/{stem}_evaluation_report.json'}})"
+                "print({{'report': 'outputs/{stem}_evaluation_report.json'}})\n"
+                '\n'
+                '# Two held-out chips: false colour, label, frozen and adapted masks, and where the adapted model is right or wrong.\n'
+                'import matplotlib.pyplot as plt\n'
+                '\n'
+                'shown = test_records[:2]\n'
+                "adapted_shown = pipe.predict(shown)['predictions']\n"
+                'fig, axes = plt.subplots(len(shown), 5, figsize=(17, 3.6 * len(shown)), squeeze=False)\n'
+                "for row, (record, frozen_pred, adapted_pred) in enumerate(zip(shown, frozen_predictions['predictions'], adapted_shown)):\n"
+                "    label, mask = record['label'], adapted_pred['mask']\n"
+                "    composite = np.clip(np.stack([record['image'][5], record['image'][3], record['image'][2]], axis=-1) / 0.4, 0.0, 1.0)\n"
+                '    errors = np.full(label.shape + (3,), 0.95)\n'
+                '    errors[(label == 1) & (mask == 1)] = (0.2, 0.45, 0.9)\n'
+                '    errors[(label == 1) & (mask == 0)] = (0.85, 0.15, 0.15)\n'
+                '    errors[(label == 0) & (mask == 1)] = (0.95, 0.7, 0.1)\n'
+                '    errors[label < 0] = (0.55, 0.55, 0.55)\n'
+                '    panels = (\n'
+                "        (composite, record.get('source_id', record['id']) + ': false colour (SWIR 2, NIR, red)'),\n"
+                "        (np.ma.masked_less(label, 0), 'label (water dark; blank = no data)'),\n"
+                "        (frozen_pred['mask'], 'frozen mask'),\n"
+                "        (mask, 'adapted mask'),\n"
+                "        (errors, 'adapted: blue found, red missed, amber false'),\n"
+                '    )\n'
+                '    for ax, (image, title) in zip(axes[row], panels):\n'
+                "        ax.imshow(image, cmap='Blues', vmin=0, vmax=1, interpolation='nearest')\n"
+                '        ax.set_title(title, fontsize=9)\n'
+                "        ax.axis('off')\n"
+                'fig.tight_layout()\n'
+                'plt.show()'
             ),
         },
         {
             "md": (
                 '**What to notice:** the `water_iou` row (baseline, frozen, adapted), `accuracy`, the `verdict` line, and the validation numbers beside the test numbers.\n\n<details><summary>Check '
                 'your reasoning</summary>Not on its own. In the recorded run the test water IoU moved from 0.7301 to 0.7458 (verdict *improved*) (F1 0.8440 → 0.8544, accuracy 0.9440 → '
-                '0.9468). With 12 chips, one seed and no dispersion estimate, a change of this size is within what a different draw of chips could produce; it shows '
+                '0.9468): recall rose from 0.776 to 0.8002 (fewer flooded pixels missed) while precision fell from 0.9251 to 0.9165 (a few more false alarms). '
+                'With 12 chips, one seed and no dispersion estimate, a change of this size is within what a different draw of chips could produce; it shows '
                 'the contract ran and did no harm. A repeated split or more chips would be needed to call it a gain.</details>'
             ),
         },
         {
             "md": (
                 "## 8. New chips, artifact export and fresh reload\n\n"
-                "The adapted model segments the three example chips that ship with the upstream repository (India, Spain, USA — "
-                "13-band Sentinel-2 L1C files reduced to the six bands), which carry no labels here: the predicted water fraction "
-                "per chip and a written mask are a sanity check, not an evaluation.\n\n"
+                "The adapted model segments the three example chips that ship with the upstream repository (`India_900498`, "
+                "`Spain_7370579`, `USA_430764` — 13-band Sentinel-2 L1C files reduced to the six bands). All three come from the "
+                "upstream hand-labelled **test** split, so the packaged model never trained on them, but they are not all new here: "
+                "`USA_430764` is also one of this notebook's 12 test chips, already scored with its label in Sections 5 and 7 (the "
+                "cell prints `also_a_sample_chip: 'test'` for it), so for that chip the mask is a consistency check. `India_900498` "
+                "and `Spain_7370579` are not among the 44 sample chips; their upstream labels are not fetched here, so the predicted "
+                "water fraction and the written mask are a sanity check, not an evaluation.\n\n"
                 "`pipe.save_artifact` writes the trained tensors (about 60 MB) as `adapter.safetensors`, with a `manifest.json` "
                 "recording the artifact format, the base model id and revision, the digest of the converted base file, the "
                 "adaptation scope, the tensor names, the file size and SHA-256, the training configuration and the epoch history "
@@ -421,9 +572,10 @@ TEMPLATE = {
                 "example_dir = WEIGHTS_DIR / 'examples'\n"
                 "new_records = [{{'id': path.stem, 'image': read_chip(path, band_indices=S2_L1C_BAND_INDICES), 'source': str(path.name)}} for path in sorted(example_dir.glob('*.tif'))]\n"
                 "new_predictions = pipe.predict(new_records)\n"
+                "sample_role = {{name: role for name, role, *_ in SAMPLE_RECORDS}}  # the 44 sample chips by scene\n"
                 "for record, pred in zip(new_records, new_predictions['predictions']):\n"
                 "    tifffile.imwrite(f'outputs/{stem}_mask_' + record['id'] + '.tif', pred['mask'])\n"
-                "    print({{'chip': record['id'], 'water_fraction': pred['class_fraction']['water'], 'note': 'sanity check, no label'}})\n"
+                "    print({{'chip': record['id'], 'water_fraction': pred['class_fraction']['water'], 'also_a_sample_chip': sample_role.get(record['id'].removesuffix('_S2Hand')), 'note': 'upstream test-split chip; no label fetched here'}})\n"
                 "with open('outputs/{stem}_predictions.json', 'w', encoding='utf-8') as f:\n"
                 "    json.dump({{'model': new_predictions['model'], 'classes': new_predictions['classes'], 'decision_rule': new_predictions['decision_rule'], 'predictions': [{{'id': p['id'], 'class_fraction': p['class_fraction']}} for p in new_predictions['predictions']]}}, f, indent=2)\n\n"
                 "artifact_dir = Path('outputs/{stem}_adapter')\n"
@@ -470,8 +622,9 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the water fraction of the three unlabelled example chips, the artifact's size and tensor count, and `reload_parity`.\n\n<details><summary>Check "
-                'your reasoning</summary>The example chips carry no labels, so their water fractions are a sanity check only. In the recorded run the 46-tensor, about '
+                "**What to notice:** the water fraction of the three example chips (and which one is also a sample test chip), the artifact's size and tensor count, and `reload_parity`.\n\n<details><summary>Check "
+                'your reasoning</summary>No labels are fetched for the example chips, so their water fractions are a sanity check only; `USA_430764` repeats a '
+                'test chip Section 7 already scored. In the recorded run the 46-tensor, about '
                 '60 MB adapter reloaded into a fresh pipeline with identical held-out metrics (`positive_iou_diff` 0.0, `metrics_identical` True, `max_abs_score_diff` '
                 '0.0).</details>'
             ),
@@ -479,14 +632,19 @@ TEMPLATE = {
     ],
     "closing": (
         "## Interpretation and limits\n\n"
-        "On 12 held-out chips from the official test split the packaged flood model finds water with an IoU near 0.73 (F1 0.84 "
-        "in the recorded run), against a no-water baseline that scores 0; a bounded fine-tuning of its neck, decoder "
-        "and head on 24 chips, selected by validation loss with the frozen model as a candidate, leaves those numbers about "
-        "where they were. That is the claim: the adaptation contract runs end to end on real labelled multispectral chips, "
+        "**On the default sample**, 12 held-out chips from the official test split, the packaged flood model finds water with "
+        "an IoU near 0.73 (F1 0.84 in the recorded run) against a no-water baseline that scores 0, and its precision (0.93) is "
+        "well above its recall (0.78): it misses some water rather than inventing it. A bounded fine-tuning of its neck, decoder "
+        "and head on 24 chips, selected by validation loss with the frozen model as a candidate, moved the water IoU from 0.7301 "
+        "to 0.7458 in the recorded run by trading along that line: recall rose from 0.776 to 0.8002 (fewer flooded pixels "
+        "missed) while precision fell from 0.9251 to 0.9165 (a few more false alarms). On 12 chips with one seed that is a "
+        "small, unconfirmed change, not a measured gain. **If you ran your own chips (BYOD),** the numbers describe your chips "
+        "under the split printed as `split_rule` in Section 4, and the frozen numbers are the packaged model's (Section 5 "
+        "restores the pinned base before scoring). That is the claim: the adaptation contract runs end to end on real labelled multispectral chips, "
         "the pickle is audited and converted rather than served, and the artifact that carries the change is 60 MB and "
         "reloads with identical outputs. It is not a claim that this sample improves the model — the model already "
         "trained on this dataset — nor that 12 chips measure its skill.\n\n"
-        "The numbers are sample-sanity evidence: one seeded run, 12 test chips from seven regions, no dispersion estimate, "
+        "The numbers are sample-sanity evidence: one seeded run, 12 test chips from ten regions, no dispersion estimate, "
         "pixel-pooled metrics that let large chips dominate, and hand labels that carry their own uncertainty at water edges "
         "and under thin cloud. Nothing here measures the model on Sentinel-1, on scenes larger than a chip, or on regions and "
         "seasons outside Sen1Floods11.\n\n"
@@ -502,9 +660,23 @@ TEMPLATE = {
         "digest-pinned real labelled chips, execute bounded fine-tuning, evaluate against a baseline and the frozen model on "
         "held-out chips, and emit the shown machine-readable artifacts — without the repository being reachable. It does "
         "**not** establish benchmark superiority, production fitness, or flood-mapping skill beyond the checks shown.\n\n"
-        "**Optional experiments (they do not affect the default path):** set `TRAINABLE = 'decoder+last_block'`; raise "
-        "`EPOCHS` and watch the validation loss turn; try `LEARNING_RATE = 1e-4` to see the frozen model win every epoch; or "
-        "bring your own labelled chips through BYOD and read the baseline before the adapted number.\n\n"
+        "## Optional activity: Predict → Change → Run → Observe → Explain\n\n"
+        "This does not affect the default path; the defaults reproduce the recorded run.\n\n"
+        "1. **Predict:** with `TRAINABLE = 'decoder+last_block'` the last encoder block (27.7 M more parameters) is trained "
+        "too. Will the kept epoch's validation loss be lower than with `'decoder'`, and will the test `verdict` change? Write "
+        "your guess down.\n"
+        "2. **Change** only `TRAINABLE` in Section 6; keep `EPOCHS`, `LEARNING_RATE` and `BATCH_SIZE`.\n"
+        "3. **Run** Sections 6, 7 and 8 in that order. Section 6 first restores the pinned base (it prints `started_from`), so "
+        "this is a fresh experiment rather than continued training, and epoch 0 is still the frozen model. Section 5 need not "
+        "be re-run: its frozen numbers do not depend on `TRAINABLE`.\n"
+        "4. **Observe** `best_epoch`, the validation loss per epoch, the `water_iou`, `precision` and `recall` rows, the "
+        "`verdict` and the figure.\n"
+        "5. **Explain** whether a larger trainable share helped on 24 chips whose distribution the model has already seen, "
+        "and whether the change is larger than a different draw of 12 test chips could produce.\n\n"
+        "**Scope of a re-run:** every variation here is Sections 6 → 7 → 8; to return to the recorded settings, restore the "
+        "defaults and run the same three sections. Other variations to predict before running: raise `EPOCHS` (does the "
+        "validation loss keep falling?) or set `LEARNING_RATE = 1e-4` (which epoch does validation selection keep, when the "
+        "frozen epoch 0 is a candidate?). For your own chips set `USE_BYOD = True` and run from Section 4 onwards.\n\n"
         '## Troubleshooting\n\n- **Section 1 stops with "This notebook needs a Linux x86_64 runtime"** — you are on Windows, macOS or an ARM machine. Use Google '
         'Colab, Kaggle or a Linux x86_64 Jupyter server.\n- **The uv wheel fails its size/SHA-256 check, or a download in Section 1 times out** — run Section 1 '
         'again; a complete environment built from the same lock is reused, an incomplete one is finished. If it repeats, the network is blocking or altering '
@@ -518,7 +690,11 @@ TEMPLATE = {
         "the GPU, or `TRAINABLE = 'decoder+last_block'` with a larger `BATCH_SIZE` exceeds a T4. Restart the session, keep `BATCH_SIZE = 2`, and choose **Run all**.\n- "
         '**Section 5 prints `restored_pinned_base`** — you re-ran it after Section 6; the adapted tensors were put back to the base. Re-run Sections 6–8 in order.\n- '
         '**BYOD: a band, shape or label refusal** — the message names the rule; chips must be six-band 512 × 512 GeoTIFFs in the documented band order (13-band '
-        'Sentinel-2 L1C files are reduced automatically) with masks of 0 / 1 / −1, and at least four chips need some water.\n- **BYOD: "BYOD_PATH … does not '
+        'Sentinel-2 L1C files are reduced automatically) with masks of 0 / 1 / −1, and the dataset needs some water.\n- **BYOD: "bring at least 7 labelled '
+        'chips"** — the per-chip split keeps four chips for training, one for validation and two for test; add chips, or give a `split` column.\n- **BYOD: '
+        '"pairs.csv row … is listed but not in …" or "… is not a readable GeoTIFF"** — the message names the row and the file: add the file, correct the '
+        'row, or save the file again as a GeoTIFF.\n- **BYOD: a group or split refusal** — a group split needs at least three groups and four training '
+        'chips; a `split` column needs `train`, `validation` and `test` each at least once.\n- **BYOD: "BYOD_PATH … does not '
         'exist"** — the path is relative to the working directory printed in the message.\n- **BYOD: "the upload dialog exists only in Google Colab"** — on '
         'Kaggle or Jupyter, put the zip (or folder) in the runtime and set `BYOD_PATH` to its path.\n- **BYOD: "Upload exactly one .zip file"** — the dialog was '
         "cancelled or several files were chosen; run the cell again.\n\n## Glossary\n\n- **Sentinel-2 / Sen1Floods11:** ESA's optical satellites; Sen1Floods11 is a "
@@ -544,6 +720,6 @@ TEMPLATE = {
         "- Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications. arXiv:2412.02732: https://arxiv.org/abs/2412.02732\n"
         "- Bonafilia, D., Tellman, B., Anderson, T., Issenberg, E. (2020). Sen1Floods11: A georeferenced dataset to train and test deep learning flood algorithms for Sentinel-1. CVPR Workshops: https://github.com/cloudtostreet/Sen1Floods11\n"
         "- TerraTorch: https://github.com/IBM/terratorch\n"
-        "- DIMER Notebook Specification 2.0 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)\n"
+        "- DIMER Notebook Specification 2.2 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)\n"
     ),
 }

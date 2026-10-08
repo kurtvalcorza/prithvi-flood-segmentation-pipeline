@@ -161,6 +161,11 @@ def _metrics(water_iou: float) -> dict:
     return {"iou": {"no water": 0.9, "water": water_iou}, "mean_iou": 0.5, "accuracy": 0.8, "precision": 0.0, "recall": 0.0, "f1": 0.0}
 
 
+def _section_7_source(notebook: dict) -> str:
+    source = _cell(notebook, "delta_water_iou = ")
+    return source[: source.index("# Two held-out chips")]  # the review-fix figure (FL-m5) is tested in test_review_fixes.py
+
+
 def _section_7_namespace(adapted_iou: float, kept_val_loss: float) -> dict:
     history = [{"epoch": 0, "val_loss": 0.5, "val": {"iou": {"water": 0.7}}}, {"epoch": 1, "val_loss": kept_val_loss, "val": {"iou": {"water": adapted_iou}}}]
     return {
@@ -173,7 +178,7 @@ def _section_7_namespace(adapted_iou: float, kept_val_loss: float) -> dict:
 
 @pytest.mark.parametrize(("adapted_iou", "verdict"), [(0.6, "worse"), (0.7, "no change"), (0.8, "improved")])
 def test_swp_a_section_7_records_the_verdict_and_writes_the_report(notebook, tmp_path, monkeypatch, adapted_iou, verdict):
-    source = _cell(notebook, "delta_water_iou = ")
+    source = _section_7_source(notebook)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "outputs").mkdir()
     namespace = _section_7_namespace(adapted_iou, 0.4)
@@ -185,7 +190,7 @@ def test_swp_a_section_7_records_the_verdict_and_writes_the_report(notebook, tmp
 
 
 def test_swp_a_contract_checks_still_stop_the_run(notebook, tmp_path, monkeypatch):
-    source = _cell(notebook, "delta_water_iou = ")
+    source = _section_7_source(notebook)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "outputs").mkdir()
     with pytest.raises(RuntimeError, match="contract: the kept epoch"):
@@ -275,7 +280,8 @@ def _byod_namespace(path: str) -> dict:
     return {
         "USE_BYOD": True, "BYOD_PATH": path, "Path": Path, "loaded": loaded,
         "load_byod_dataset": lambda p: loaded.append(Path(p)) or ["r"],
-        "split_dataset": lambda records, seed: {"train": records, "validation": records, "test": records},
+        "read_byod_table": lambda p: [],
+        "split_byod": lambda records, rows, seed: ({"train": records, "validation": records, "test": records}, "stand-in"),
     }
 
 
