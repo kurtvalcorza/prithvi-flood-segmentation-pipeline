@@ -1,0 +1,81 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/prithvi-flood-segmentation-pipeline-eb79368-14ae04/prithvi_flood_segmentation_colab_eb79368_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/11 - Infrastructure: build (or reuse) the isolated environment and route later cells to it...
+{'isolated_environment': '/content/dimer_isolated_env_0f2c040bc50a', 'reused': False, 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 131, 'setup_seconds': 91}
+{'routed_to': '/content/dimer_isolated_env_0f2c040bc50a/bin/python', 'worker_pid': 1557, 'worker_reused': False}
+[colab] Executing cell 2/11 - Infrastructure: record the runtime...
+{'notebook_source': {'repository': 'prithvi-flood-segmentation-pipeline', 'repository_revision': 'bca015f8a13619da2eb2e8f29c4df584d803ae84', 'embedded_module': 'src/prithvi_flood_segmentation_pipeline/pipeline.py', 'embedded_modules': ['src/prithvi_flood_segmentation_pipeline/pipeline.py', 'src/prithvi_flood_segmentation_pipeline/metrics.py', 'src/prithvi_flood_segmentation_pipeline/samples.py'], 'module_sha256': 'f6097e5084f859819719e9f0c2050be4532937e79b8aa8b2191fe7fc51bd7b0d', 'generator': 'build_notebook.py/2.2', 'notebook_spec': '2.2'}, 'python': '3.12.12', 'executable': '/content/dimer_isolated_env_0f2c040bc50a/bin/python', 'torch': '2.14.0+cu130', 'timm': '1.0.30', 'lightning': '2.6.6', 'tifffile': '2026.9.15', 'cuda': True}
+[colab] Executing cell 3/11 - prithvi_flood_segmentation-08...
+[colab] Executing cell 4/11 - prithvi_flood_segmentation-10...
+[colab] Executing cell 5/11 - prithvi_flood_segmentation-12...
+[colab] Executing cell 6/11 - Infrastructure: stage and digest-verify the pinned snapshot, then load the model...
+{'model_id': 'ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11', 'revision': '91ce9d38086a80b078a192b374df758b8855b732', 'license': 'apache-2.0', 'files': 7, 'total_bytes': 1283524950}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+{'weights_dir': '/content/weights/prithvi-eo-2.0-300m-tl-sen1floods11', 'fetched': ['README.md', 'config.json', 'config.yaml', 'Prithvi-EO-V2-300M-TL-Sen1Floods11.pt', 'examples/India_900498_S2Hand.tif', 'examples/Spain_7370579_S2Hand.tif', 'examples/USA_430764_S2Hand.tif']}
+{'verified_files': 7, 'revision': '91ce9d38086a80b078a192b374df758b8855b732'}
+/content/dimer_isolated_env_0f2c040bc50a/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+{'conversion': {'source': {'path': 'Prithvi-EO-V2-300M-TL-Sen1Floods11.pt', 'bytes': 1276843350, 'sha256': '76eed77d8bd543ae441308b80e8408502243a871cb8a338ddc8220ed96dfc270'}, 'audit': {'file': 'Prithvi-EO-V2-300M-TL-Sen1Floods11.pt', 'torch_archive': True, 'pickles': 1, 'globals': ['collections.OrderedDict', 'torch.FloatStorage', 'torch.LongStorage', 'torch._utils._rebuild_tensor_v2'], 'violations': [], 'audit_sha256': '5b9f0ba08490293d6c17b9cef219991e1a6edda31609429679f8dca1af5a7b10'}, 'checkpoint': {'epoch': 41, 'global_step': 630, 'lightning_version': '2.4.0'}, 'converted': [{'path': 'prithvi-eo-2.0-300m-tl-sen1floods11.safetensors', 'bytes': 1276749320, 'sha256': '65e4377f96c651dff586bf6ef08c9b8d6c6b59c4dc05e5dfbfe320b264ac47fd'}], 'seconds': 32.13}}
+{'device': 'cuda', 'source': 'converted from the manifest-verified source checkpoint'}
+[colab] Executing cell 7/11 - prithvi_flood_segmentation-16...
+{'data_source': 'Sen1Floods11 hand-labelled Sentinel-2 chips (v1.1); Sen1Floods11 v1.1 public bucket, 44 chips selected 2026-09-19 from the official hand-labelled splits; CC BY 4.0 (Cloud to Street; Bonafilia et al., CVPRW 2020)', 'split_rule': 'the official Sen1Floods11 splits', 'byod_minimum_chips': 7, 'splits': {'train': 24, 'validation': 8, 'test': 12}, 'disjoint': {'train': 24, 'validation': 8, 'test': 12}, 'digest': '76b95fb0ce2c60b5...'}
+{'train': {'water_fraction': 0.2137, 'ignored_pixels': 363177, 'regions': ['Ghana', 'India', 'Mekong', 'Nigeria', 'Pakistan', 'Paraguay', 'Somalia', 'Spain', 'Sri-Lanka', 'USA']}}
+{'validation': {'water_fraction': 0.3615, 'ignored_pixels': 259531, 'regions': ['Ghana', 'India', 'Mekong', 'Nigeria', 'Pakistan', 'Paraguay', 'Somalia', 'Spain']}}
+{'test': {'water_fraction': 0.1951, 'ignored_pixels': 286302, 'regions': ['Ghana', 'India', 'Mekong', 'Nigeria', 'Pakistan', 'Paraguay', 'Somalia', 'Spain', 'Sri-Lanka', 'USA']}}
+{'first_test_chip': {'id': 'test-000', 'shape': (6, 512, 512), 'reflectance_range': [0.0186, 0.5372], 'has_label': True, 'label_fraction': {'no water': 0.9389, 'water': 0.0611}, 'ignored_pixels': 17680}}
+{'sample_pair': {'image': 'outputs/prithvi_flood_segmentation_sample_chip.tif', 'label': 'outputs/prithvi_flood_segmentation_sample_label.tif'}, 'pairs_csv': 'outputs/prithvi_flood_segmentation_sample_pairs.csv'}
+{'validation': 'record shape, band count, chip size, finiteness, value range and label values only. Nothing checks that the bands are the six Prithvi bands in the right order, that the reflectance is atmospherically corrected, or that the label was drawn for this chip -- any six-band 512 × 512 array is segmented without complaint'}
+{'probe': 'five-band chip', 'rejected': 'records[0]: image must have shape (6, 512, 512), got (5, 512, 512)'}
+{'probe': 'unknown label class', 'rejected': 'records[0]: label values [7] outside [-1, 0, 1]'}
+{'probe': 'reflectance out of range', 'rejected': 'records[0]: reflectance outside the plausible range after scaling: (0.09299999475479126, 2.685999631881714)'}
+[colab] Executing cell 8/11 - prithvi_flood_segmentation-19...
+{'seconds': 6.0, 'metric': 'pixel IoU / F1 over the labelled pixels of the held-out chips (ignore index excluded)'}
+{'baseline_no_water_test': {'iou': {'no water': 0.8049, 'water': 0.0}, 'accuracy': 0.8049, 'f1': 0.0}}
+{'frozen_test': {'iou': {'no water': 0.934, 'water': 0.7301}, 'mean_iou': 0.8321, 'accuracy': 0.944, 'precision': 0.9251, 'recall': 0.776, 'f1': 0.844}}
+{'frozen_validation': {'iou': {'no water': 0.9219, 'water': 0.8614}, 'f1': 0.9255}}
+{'chip': 'Ghana_313799', 'water_label': 0.061, 'water_predicted': 0.0296, 'ignored': 17680}
+{'chip': 'Ghana_319168', 'water_label': 0.23, 'water_predicted': 0.2081, 'ignored': 90520}
+{'chip': 'India_592446', 'water_label': 0.04, 'water_predicted': 0.0639, 'ignored': 37789}
+{'chip': 'India_747992', 'water_label': 0.448, 'water_predicted': 0.4424, 'ignored': 57}
+{'chip': 'Mekong_382276', 'water_label': 0.037, 'water_predicted': 0.0394, 'ignored': 33}
+{'chip': 'Nigeria_812045', 'water_label': 0.507, 'water_predicted': 0.5531, 'ignored': 25010}
+{'decision_rule': 'argmax over the two class scores (no threshold)', 'scores_shape': (2, 512, 512)}
+[colab] Executing cell 9/11 - prithvi_flood_segmentation-22...
+{'started_from': 'pinned base'}
+{'epoch': 0, 'train_loss': None, 'val_loss': 0.1306, 'val_water_iou': 0.8614, 'val_f1': 0.9256, 'note': 'frozen model'}
+{'epoch': 1, 'train_loss': 0.1007, 'val_loss': 0.1239, 'val_water_iou': 0.8658, 'val_f1': 0.9281}
+{'epoch': 2, 'train_loss': 0.0925, 'val_loss': 0.1178, 'val_water_iou': 0.8747, 'val_f1': 0.9332}
+{'epoch': 3, 'train_loss': 0.0889, 'val_loss': 0.1273, 'val_water_iou': 0.8596, 'val_f1': 0.9245}
+{'epoch': 4, 'train_loss': 0.0851, 'val_loss': 0.1243, 'val_water_iou': 0.865, 'val_f1': 0.9276}
+{'trainable_parameters': 15082242, 'total_parameters': 318968580, 'steps': 48, 'best_epoch': 2, 'precision': 'float16 autocast + GradScaler', 'batchnorm': 'running statistics frozen (eval mode) during adaptation', 'seconds': 20.3}
+[colab] Executing cell 10/11 - prithvi_flood_segmentation-25...
+{'mean_iou': {'baseline_no_water': 0.4024, 'frozen': 0.8321, 'adapted': 0.8414}}
+{'accuracy': {'baseline_no_water': 0.8049, 'frozen': 0.944, 'adapted': 0.9468}}
+{'precision': {'baseline_no_water': 0.0, 'frozen': 0.9251, 'adapted': 0.9165}}
+{'recall': {'baseline_no_water': 0.0, 'frozen': 0.776, 'adapted': 0.8002}}
+{'f1': {'baseline_no_water': 0.0, 'frozen': 0.844, 'adapted': 0.8544}}
+{'water_iou': {'baseline_no_water': 0.0, 'frozen': 0.7301, 'adapted': 0.7458}}
+{'verdict': {'adapted_vs_frozen_water_iou': 'improved', 'delta': 0.0157}}
+{'validation_water_iou': {'frozen': 0.8614, 'adapted': 0.8748}, 'validation_loss': {'frozen': 0.13059350475668907, 'kept_epoch': 0.11775730550289154}}
+{'report': 'outputs/prithvi_flood_segmentation_evaluation_report.json'}
+<Figure size 1700x720 with 10 Axes>
+
+[Image saved to: /tmp/tmpbl6ymf8y.png]
+[colab] Executing cell 11/11 - prithvi_flood_segmentation-28...
+{'chip': 'India_900498_S2Hand', 'water_fraction': 0.4768, 'also_a_sample_chip': None, 'note': 'upstream test-split chip; no label fetched here'}
+{'chip': 'Spain_7370579_S2Hand', 'water_fraction': 0.2821, 'also_a_sample_chip': None, 'note': 'upstream test-split chip; no label fetched here'}
+{'chip': 'USA_430764_S2Hand', 'water_fraction': 0.0519, 'also_a_sample_chip': 'test', 'note': 'upstream test-split chip; no label fetched here'}
+{'artifact': 'outputs/prithvi_flood_segmentation_adapter', 'format': 'org.valcorza.prithvi-flood-segmentation.adapter.v1', 'trainable': 'decoder', 'tensors': 46, 'bytes': 60333632, 'sha256': '9ccaceb98d809cf1...'}
+{'reload_parity': {'positive_iou_diff': 0.0, 'metrics_identical': True, 'max_abs_score_diff': 0.0}, 'reloaded_best_epoch': 2}
+outputs/:
+  - outputs/prithvi_flood_segmentation_adapter/adapter.safetensors (58919.6 KB)
+  - outputs/prithvi_flood_segmentation_adapter/manifest.json (6.0 KB)
+  - outputs/prithvi_flood_segmentation_evaluation_report.json (11.4 KB)
+  - outputs/prithvi_flood_segmentation_mask_India_900498_S2Hand.tif (256.2 KB)
+  - outputs/prithvi_flood_segmentation_mask_Spain_7370579_S2Hand.tif (256.2 KB)
+  - outputs/prithvi_flood_segmentation_mask_USA_430764_S2Hand.tif (256.2 KB)
+  - outputs/prithvi_flood_segmentation_predictions.json (0.7 KB)
+  - outputs/prithvi_flood_segmentation_result.json (3.3 KB)
+  - outputs/prithvi_flood_segmentation_sample_chip.tif (6144.4 KB)
+  - outputs/prithvi_flood_segmentation_sample_label.tif (512.3 KB)
+  - outputs/prithvi_flood_segmentation_sample_pairs.csv (2.2 KB)
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/prithvi-flood-segmentation-pipeline-eb79368-14ae04/prithvi_flood_segmentation_colab_eb79368_colab-cli-t4_output.ipynb'...
