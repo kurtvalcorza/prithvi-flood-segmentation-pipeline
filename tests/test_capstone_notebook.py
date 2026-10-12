@@ -526,3 +526,91 @@ def test_carrier_splitter_round_trips_exactly() -> None:
     assert ast.literal_eval(tree[0].value) == files
     assert split.startswith("# head\nCARRIED_FILES = {\n") and split.endswith("}\nCARRIED_HASHES = {}\nprint('ok')\n")
     assert splitter.split_carrier(split) == split
+
+
+# --- 2026-10-12 review fixes (FLD-M1, FLD-M2, FLD-m1, FLD-m2, FLD-m4) ------------------------------------------------
+
+
+def test_comparison_scope_states_unequal_tuning_and_competing_explanations() -> None:
+    # FLD-M1: MNDWI is tuned on Candon and Prithvi is not; the held-out ranking must not be credited to geography.
+    markdown = "\n".join(_markdown(_notebook()))
+    assert "MNDWI and Prithvi are **not equally tuned**" in markdown
+    assert "Prithvi runs at a fixed default of 0.5 that is not selected on Candon" in markdown
+    assert "At least three explanations compete: the two systems were not equally tuned" in markdown
+    assert "frozen Prithvi at its untuned default threshold of 0.5 achieved" in markdown
+    for stale in ("sensitivity to geography", "examine geography"):
+        assert stale not in markdown
+    conclusion = _carried(_notebook())[0]["capstone.py"]
+    assert "Prithvi at its untuned default threshold 0.5 achieved [metrics]" in conclusion
+
+
+def test_candidate_inundation_population_and_class0_share_are_disclosed() -> None:
+    # FLD-M2 (provisional option A): the class-0 rule is unchanged, but its effect is stated where learners read it.
+    markdown = "\n".join(_markdown(_notebook()))
+    assert "computed only on clear valid pixels where the JRC layer has a non-zero class" in markdown
+    assert "class 0 covered almost all dry land" in markdown
+    assert "where the JRC 2018 layer has a known class (here mainly the river and coast corridor)" in markdown
+    assert "Use the class-0 share in the table" in markdown
+
+
+def test_candidate_sidecar_records_the_class0_share_without_changing_the_area(runner, monkeypatch, tmp_path: Path) -> None:
+    # The figure is not under test here (matplotlib is not in CI); the area and the new class-0 fields are.
+    monkeypatch.setattr(runner, "candidate_figure", lambda root, record, *args: tmp_path / "figure.png")
+    record = {"id": "SYN_DEV", "role": "development", "assets": {"permanent": {"path": "SYN/permanent.tif"}}}
+    _write_raster(tmp_path / "cache" / "SYN" / "permanent.tif", np.array([[0, 0, 1, 2, 3, 0]]), "uint8")
+    _write_raster(runner.scene_output(tmp_path, record, "prithvi"), np.array([[1, 0, 1, 1, 1, 255]]), "uint8", 255)
+    products = runner.candidate_inundation(tmp_path, {"permanent_water": {"verified": True}}, record)
+    import rasterio
+
+    with rasterio.open(products[0]) as source:
+        assert source.read(1).tolist() == [[255, 255, 1, 1, 0, 255]]
+    sidecar = runner.read_json(products[1])
+    assert sidecar["candidate_inundation_km2"] == pytest.approx(2 * 100 / 1e6)
+    assert (sidecar["clear_valid_pixels"], sidecar["excluded_jrc_class0_pixels"]) == (5, 2)
+    assert sidecar["excluded_jrc_class0_fraction"] == pytest.approx(0.4)
+    assert "class 0 (no data) is excluded" in sidecar["meaning"]
+
+
+def test_candidate_table_shows_the_class0_share(monkeypatch, tmp_path: Path) -> None:
+    namespace, shown = _helpers(monkeypatch, tmp_path)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "EMSR312_08CANDON_X_candidate_inundation.json").write_text(json.dumps({
+        "scene": "EMSR312_08CANDON_X", "role": "development", "meaning": "m", "candidate_inundation_km2": 1.69,
+        "confirmed_flood": False, "limitations": "l", "excluded_jrc_class0_fraction": 0.9}))
+    namespace["show_candidates"]()
+    assert "| 08CANDON | development | 1.6900 | no | 90.0000 |" in shown[0][1]
+    assert "Clear valid pixels excluded as JRC class 0 (%)" in shown[0][1]
+
+
+def test_run_stage_prints_the_log_tail_only_when_a_stage_fails() -> None:
+    # FLD-m1: the live stream already shows each line; the tail is repeated only for diagnostics on failure.
+    install = _install_cell(_notebook())
+    function = next(n for n in ast.walk(ast.parse(install)) if isinstance(n, ast.FunctionDef) and n.name == "run_stage")
+    tail_prints = [n for n in ast.walk(function) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "print"
+                   and "read_text" in ast.unparse(n)]
+    assert len(tail_prints) == 1
+    failure = next(s for s in function.body if isinstance(s, ast.If) and "returncode" in ast.unparse(s.test))
+    assert tail_prints[0] in list(ast.walk(failure))
+
+
+def test_only_the_numpy_shape_deprecation_warning_is_filtered() -> None:
+    capstone = _carried(_notebook())[0]["capstone.py"]
+    filters = [line for line in capstone.splitlines() if "filterwarnings" in line or "simplefilter" in line]
+    assert filters == ["warnings.filterwarnings("]
+    assert 'message="Setting the shape on a NumPy array has been deprecated", category=DeprecationWarning' in capstone
+
+
+def test_label_lineage_kind_notice_and_runtime_are_stated() -> None:
+    # FLD-m2 and FLD-m4 (provisional option A): spec 2.2 and APA citations are kept.
+    notebook = _notebook()
+    meta = notebook["metadata"]["dimer"]
+    assert meta["notebook_kind"] == "CAPSTONE" and meta["notebook_spec"] == "2.2"
+    opening = _source(notebook["cells"][0])
+    first_code = next(i for i, c in enumerate(notebook["cells"]) if c["cell_type"] == "code")
+    assert first_code > 0 and "> **⚠️ Notice.**" in opening and "disaster-response" in opening
+    assert opening.index("> **⚠️ Notice.**") < opening.index("**Driving question:**")
+    assert "**Expected runtime:** about 5 minutes" in opening and "Tesla T4 on 2026-10-03" in opening
+    markdown = "\n".join(_markdown(notebook))
+    assert "**Where the reference labels come from.**" in markdown
+    assert "WorldFloods v2 curated those maps manually" in markdown and "EMSR312 delineation" in markdown
