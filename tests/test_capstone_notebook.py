@@ -532,13 +532,15 @@ def test_carrier_splitter_round_trips_exactly() -> None:
 
 
 def test_comparison_scope_states_unequal_tuning_and_competing_explanations() -> None:
+    # Wording/disclosure test: it checks the scope text is present, not that any causal explanation is correct.
     # FLD-M1: MNDWI is tuned on Candon and Prithvi is not; the held-out ranking must not be credited to geography.
     markdown = "\n".join(_markdown(_notebook()))
     assert "MNDWI and Prithvi are **not equally tuned**" in markdown
     assert "Prithvi runs at a fixed default of 0.5 that is not selected on Candon" in markdown
     assert "At least three explanations compete: the two systems were not equally tuned" in markdown
     assert "frozen Prithvi at its untuned default threshold of 0.5 achieved" in markdown
-    for stale in ("sensitivity to geography", "examine geography"):
+    assert "cannot isolate either approach's intrinsic transfer ability or establish broader transfer performance" in markdown
+    for stale in ("sensitivity to geography", "examine geography", "does not show which approach transfers better"):
         assert stale not in markdown
     conclusion = _carried(_notebook())[0]["capstone.py"]
     assert "Prithvi at its untuned default threshold 0.5 achieved [metrics]" in conclusion
@@ -549,7 +551,8 @@ def test_candidate_inundation_population_and_class0_share_are_disclosed() -> Non
     markdown = "\n".join(_markdown(_notebook()))
     assert "computed only on clear valid pixels where the JRC layer has a non-zero class" in markdown
     assert "class 0 covered almost all dry land" in markdown
-    assert "where the JRC 2018 layer has a known class (here mainly the river and coast corridor)" in markdown
+    assert "where the exported JRC 2018 layer has class 1–3 (here mainly the river and coast corridor)" in markdown
+    assert "What class 0 means in this export is unverified" in markdown and "known class" not in markdown
     assert "Use the class-0 share in the table" in markdown
 
 
@@ -614,3 +617,40 @@ def test_label_lineage_kind_notice_and_runtime_are_stated() -> None:
     markdown = "\n".join(_markdown(notebook))
     assert "**Where the reference labels come from.**" in markdown
     assert "WorldFloods v2 curated those maps manually" in markdown and "EMSR312 delineation" in markdown
+
+
+# --- 2026-10-12 peer-review follow-up (CX1, CX4-CX8): wording/disclosure tests, not validation of semantics ----------
+
+
+def test_reference_timing_is_stated_as_a_timestamp_difference_not_a_fact_about_the_mask() -> None:
+    notebook = _notebook()
+    markdown = "\n".join(_markdown(notebook))
+    capstone = _carried(notebook)[0]["capstone.py"]
+    for stale in ("16 hours before the image", "made 16 hours", "made about 16 hours", "reference precedes image"):
+        assert stale not in markdown and stale not in capstone
+    assert markdown.count("temporal support is not fully established") >= 4
+    assert "reference temporal support not fully established" in capstone
+
+
+def test_iou_f1_optimum_and_threshold_change_are_described_correctly() -> None:
+    markdown = "\n".join(_markdown(_notebook()))
+    assert "error balance" not in markdown
+    assert "reach their maximum at the same tested threshold on this fixed mask, because F1 = 2·IoU / (1 + IoU)" in markdown
+    assert "It would also be a separate experiment, not a setting you can change here" in markdown
+
+
+def test_precision_is_not_presented_as_sufficient_under_imbalance() -> None:
+    markdown = "\n".join(_markdown(_notebook()))
+    assert "precision-based measures stay informative" not in markdown
+    assert "Read precision and recall together, alongside water IoU, class support and coverage." in markdown
+
+
+def test_figure_captions_name_the_score_margin_and_the_candidate_population() -> None:
+    notebook = _notebook()
+    capstone = _carried(notebook)[0]["capstone.py"]
+    assert "small = ambiguous" not in capstone and "Water probability >" not in capstone
+    assert "Distance from decision threshold 0.5" in capstone and 'f"Softmax water score > {threshold}"' in capstone
+    figure = capstone[capstone.index("def candidate_figure"):capstone.index("def report")]
+    assert "the reference-conditioned scoring population" in figure and "exported JRC layer has class 1-3" in figure
+    assert "class0_percent" in figure and "meaning of class 0 in this export unverified" in figure
+    assert "score-margin diagnostic, not calibrated uncertainty" in "\n".join(_markdown(notebook))
