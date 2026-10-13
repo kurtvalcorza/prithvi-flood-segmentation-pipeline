@@ -150,10 +150,11 @@ def test_control_uncited_reference_is_rejected(tree: Path) -> None:
 
     def mutate(notebook: dict) -> None:
         for cell in notebook["cells"]:
-            cell["source"] = _source(cell).replace("(Ploton et al., 2020)", "(the spatial-validation literature)")
+            body, sep, refs = _source(cell).partition("## References")
+            cell["source"] = body.replace("[14]", "(the spatial-validation literature)") + sep + refs
 
     _edit(tree, mutate)
-    with pytest.raises(module.ValidationError, match=r"reference Ploton \(2020\) is never cited"):
+    with pytest.raises(module.ValidationError, match=r"reference \[14\] is never cited"):
         module.validate_workshop_notebooks()
 
 
@@ -162,10 +163,23 @@ def test_control_citation_without_reference_is_rejected(tree: Path) -> None:
 
     def mutate(notebook: dict) -> None:
         cell = next(c for c in notebook["cells"] if "## 4. Run frozen Prithvi" in _source(c))
+        cell["source"] = _source(cell) + "\n\nSegmentation transformers are widely used [99].\n"
+
+    _edit(tree, mutate)
+    with pytest.raises(module.ValidationError, match=r"citation \[99\] has no reference entry"):
+        module.validate_workshop_notebooks()
+
+
+def test_control_author_year_citation_is_rejected_in_the_ieee_notebook(tree: Path) -> None:
+    # Notebook Spec 2.5 DOC14: one reference style throughout.
+    module = _load_validator(tree)
+
+    def mutate(notebook: dict) -> None:
+        cell = next(c for c in notebook["cells"] if "## 4. Run frozen Prithvi" in _source(c))
         cell["source"] = _source(cell) + "\n\nSegmentation transformers are widely used (Nobody et al., 2024).\n"
 
     _edit(tree, mutate)
-    with pytest.raises(module.ValidationError, match=r"citation \(Nobody, 2024\) has no reference entry"):
+    with pytest.raises(module.ValidationError, match="mixes author-year citations"):
         module.validate_workshop_notebooks()
 
 
@@ -533,31 +547,31 @@ def test_carrier_splitter_round_trips_exactly() -> None:
 
 def test_comparison_scope_states_unequal_tuning_and_competing_explanations() -> None:
     # Wording/disclosure test: it checks the scope text is present, not that any causal explanation is correct.
-    # FLD-M1: MNDWI is tuned on Candon and Prithvi is not; the held-out ranking must not be credited to geography.
     markdown = "\n".join(_markdown(_notebook()))
-    assert "MNDWI and Prithvi are **not equally tuned**" in markdown
-    assert "Prithvi runs at a fixed default of 0.5 that is not selected on Candon" in markdown
-    assert "At least three explanations compete: the two systems were not equally tuned" in markdown
-    assert "frozen Prithvi at its untuned default threshold of 0.5 achieved" in markdown
+    assert "In the primary comparison MNDWI and Prithvi are **not equally tuned**" in markdown
+    assert "Prithvi's primary row runs at a fixed default of 0.5 that is not selected on Candon" in markdown
+    assert "The declared secondary row gives Prithvi the same kind of Candon tuning" in markdown
+    assert "The secondary row tests the first one" in markdown
+    assert "as a declared secondary row, Prithvi at its Candon-selected threshold of [t] achieved" in markdown
     assert "cannot isolate either approach's intrinsic transfer ability or establish broader transfer performance" in markdown
     for stale in ("sensitivity to geography", "examine geography", "does not show which approach transfers better"):
         assert stale not in markdown
     conclusion = _carried(_notebook())[0]["capstone.py"]
-    assert "Prithvi at its untuned default threshold 0.5 achieved [metrics]" in conclusion
+    assert "as a declared secondary row, Prithvi at its Candon-selected threshold [t] achieved [metrics]" in conclusion
 
 
-def test_candidate_inundation_population_and_class0_share_are_disclosed() -> None:
-    # FLD-M2 (provisional option A): the class-0 rule is unchanged, but its effect is stated where learners read it.
+def test_secondary_product_is_named_for_what_it_computes() -> None:
+    # FLD-M2 = B (wording/disclosure test): class 0 treated as not water, product renamed; no "known class" wording.
     markdown = "\n".join(_markdown(_notebook()))
-    assert "computed only on clear valid pixels where the JRC layer has a non-zero class" in markdown
-    assert "class 0 covered almost all dry land" in markdown
-    assert "where the exported JRC 2018 layer has class 1–3 (here mainly the river and coast corridor)" in markdown
-    assert "What class 0 means in this export is unverified" in markdown and "known class" not in markdown
-    assert "Use the class-0 share in the table" in markdown
+    assert "**Predicted water outside JRC 2018 permanent water:**" in markdown
+    assert "Class 0 is therefore treated as not water, and the area is computed on every clear valid pixel" in markdown
+    assert "Prithvi predicts *x* km² of water outside JRC 2018 permanent water on the clear pixels of this image" in markdown
+    for stale in ("known class", "Candidate inundation", "candidate-inundation map", "meaning is unverified"):
+        assert stale not in markdown
 
 
-def test_candidate_sidecar_records_the_class0_share_without_changing_the_area(runner, monkeypatch, tmp_path: Path) -> None:
-    # The figure is not under test here (matplotlib is not in CI); the area and the new class-0 fields are.
+def test_jrc_class0_is_treated_as_not_water(runner, monkeypatch, tmp_path: Path) -> None:
+    # FLD-M2 = B: only JRC class 3 is removed; class 0 counts as not water; only invalid predictions are excluded.
     monkeypatch.setattr(runner, "candidate_figure", lambda root, record, *args: tmp_path / "figure.png")
     record = {"id": "SYN_DEV", "role": "development", "assets": {"permanent": {"path": "SYN/permanent.tif"}}}
     _write_raster(tmp_path / "cache" / "SYN" / "permanent.tif", np.array([[0, 0, 1, 2, 3, 0]]), "uint8")
@@ -566,12 +580,14 @@ def test_candidate_sidecar_records_the_class0_share_without_changing_the_area(ru
     import rasterio
 
     with rasterio.open(products[0]) as source:
-        assert source.read(1).tolist() == [[255, 255, 1, 1, 0, 255]]
+        assert source.read(1).tolist() == [[1, 0, 1, 1, 0, 255]]
     sidecar = runner.read_json(products[1])
-    assert sidecar["candidate_inundation_km2"] == pytest.approx(2 * 100 / 1e6)
-    assert (sidecar["clear_valid_pixels"], sidecar["excluded_jrc_class0_pixels"]) == (5, 2)
-    assert sidecar["excluded_jrc_class0_fraction"] == pytest.approx(0.4)
-    assert "class 0 (no data) is excluded" in sidecar["meaning"]
+    assert sidecar["candidate_inundation_km2"] == pytest.approx(3 * 100 / 1e6)
+    assert sidecar["predicted_water_outside_jrc_permanent_km2"] == sidecar["candidate_inundation_km2"]
+    assert (sidecar["clear_valid_pixels"], sidecar["jrc_class0_pixels"]) == (5, 2)
+    assert sidecar["jrc_class0_fraction"] == pytest.approx(0.4)
+    assert sidecar["product"] == "Predicted water outside JRC 2018 permanent water"
+    assert "excluded_jrc_class0_fraction" not in sidecar and "treated as not water" in sidecar["jrc_class0_rule"]
 
 
 def test_candidate_table_shows_the_class0_share(monkeypatch, tmp_path: Path) -> None:
@@ -580,10 +596,11 @@ def test_candidate_table_shows_the_class0_share(monkeypatch, tmp_path: Path) -> 
     outputs.mkdir()
     (outputs / "EMSR312_08CANDON_X_candidate_inundation.json").write_text(json.dumps({
         "scene": "EMSR312_08CANDON_X", "role": "development", "meaning": "m", "candidate_inundation_km2": 1.69,
-        "confirmed_flood": False, "limitations": "l", "excluded_jrc_class0_fraction": 0.9}))
+        "confirmed_flood": False, "limitations": "l", "jrc_class0_fraction": 0.9}))
     namespace["show_candidates"]()
     assert "| 08CANDON | development | 1.6900 | no | 90.0000 |" in shown[0][1]
-    assert "Clear valid pixels excluded as JRC class 0 (%)" in shown[0][1]
+    assert "Predicted water outside JRC 2018 permanent water (km²)" in shown[0][1]
+    assert "Clear valid pixels in JRC class 0, treated as never water (%)" in shown[0][1]
 
 
 def test_run_stage_prints_the_log_tail_only_when_a_stage_fails() -> None:
@@ -605,18 +622,22 @@ def test_only_the_numpy_shape_deprecation_warning_is_filtered() -> None:
 
 
 def test_label_lineage_kind_notice_and_runtime_are_stated() -> None:
-    # FLD-m2 and FLD-m4 (provisional option A): spec 2.2 and APA citations are kept.
+    # FLD-m2 and FLD-m4 = B (wording/structure test): Notebook Spec 2.5 write-up layer and label lineage.
     notebook = _notebook()
     meta = notebook["metadata"]["dimer"]
-    assert meta["notebook_kind"] == "CAPSTONE" and meta["notebook_spec"] == "2.2"
+    assert meta["notebook_kind"] == "CAPSTONE" and meta["notebook_spec"] == "2.5"
     opening = _source(notebook["cells"][0])
     first_code = next(i for i, c in enumerate(notebook["cells"]) if c["cell_type"] == "code")
     assert first_code > 0 and "> **⚠️ Notice.**" in opening and "disaster-response" in opening
-    assert opening.index("> **⚠️ Notice.**") < opening.index("**Driving question:**")
+    assert opening.index("> **⚠️ Notice.**") < opening.index("### Problem statement")
     assert "**Expected runtime:** about 5 minutes" in opening and "Tesla T4 on 2026-10-03" in opening
     markdown = "\n".join(_markdown(notebook))
-    assert "**Where the reference labels come from.**" in markdown
-    assert "WorldFloods v2 curated those maps manually" in markdown and "EMSR312 delineation" in markdown
+    assert "curated the maps manually" in markdown and "create_gt.py" in markdown
+    assert "**Where the reference labels come from (label lineage).**" in markdown and "RADARSAT-2" in markdown
+    for heading in ("### Problem statement", "### Data context", "## What did not work",
+                    "**Answer to the problem statement.**"):
+        assert heading in markdown
+    assert "DIMER Notebook Specification `2.5`" in opening
 
 
 # --- 2026-10-12 peer-review follow-up (CX1, CX4-CX8): wording/disclosure tests, not validation of semantics ----------
@@ -636,7 +657,7 @@ def test_iou_f1_optimum_and_threshold_change_are_described_correctly() -> None:
     markdown = "\n".join(_markdown(_notebook()))
     assert "error balance" not in markdown
     assert "reach their maximum at the same tested threshold on this fixed mask, because F1 = 2·IoU / (1 + IoU)" in markdown
-    assert "It would also be a separate experiment, not a setting you can change here" in markdown
+    assert "The notebook does exactly that as a declared secondary row" in markdown
 
 
 def test_precision_is_not_presented_as_sufficient_under_imbalance() -> None:
@@ -651,6 +672,54 @@ def test_figure_captions_name_the_score_margin_and_the_candidate_population() ->
     assert "small = ambiguous" not in capstone and "Water probability >" not in capstone
     assert "Distance from decision threshold 0.5" in capstone and 'f"Softmax water score > {threshold}"' in capstone
     figure = capstone[capstone.index("def candidate_figure"):capstone.index("def report")]
-    assert "the reference-conditioned scoring population" in figure and "exported JRC layer has class 1-3" in figure
-    assert "class0_percent" in figure and "meaning of class 0 in this export unverified" in figure
+    assert "the reference-conditioned scoring population" in figure and "is treated as not water" in figure
+    assert "class0_percent" in figure and "Water outside JRC 2018 permanent water" in figure
     assert "score-margin diagnostic, not calibrated uncertainty" in "\n".join(_markdown(notebook))
+
+
+# --- 2026-10-13 owner decisions: FLD-M1 = C (declared secondary Prithvi row) -------------------------------------
+
+
+def test_prithvi_secondary_threshold_uses_the_mndwi_rule_on_candon(runner, tmp_path: Path) -> None:
+    # Ties pick the threshold closest to zero, then the smaller one: on a 0..1 score that is the smallest tied value.
+    record = {"id": "SYN_DEV", "role": "development", "assets": {}}
+    _write_raster(runner.scene_output(tmp_path, record, "reference"), np.array([[1, 1, 0, 0, 255]]), "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "probability"),
+                  np.array([[0.72, 0.9, 0.31, 0.05, -9999]]), "float32", -9999)
+    path = runner.select_prithvi_threshold(tmp_path, record)
+    selection = runner.read_json(path)
+    assert selection["grid"] == [step / 20 for step in range(1, 20)] == runner.PRITHVI_GRID
+    best = max(r["water_iou"] for r in selection["sweep"])
+    tied = [r["threshold"] for r in selection["sweep"] if r["water_iou"] == best]
+    assert tied == [0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7] and selection["selected_threshold"] == 0.35
+    assert selection["selected_threshold"] == runner.select_threshold(selection["sweep"])
+    assert selection["primary_threshold"] == 0.5 and runner.secondary_threshold(tmp_path) == 0.35
+
+
+def test_secondary_row_is_scored_beside_the_primary_row(runner, tmp_path: Path) -> None:
+    record = {"id": "SYN_HELD", "role": "heldout", "assets": {}}
+    reference = np.array([[1, 1, 0, 0, 255]] * 4)
+    probability = np.array([[0.4, 0.8, 0.45, 0.1, -9999]] * 4)
+    _write_raster(runner.scene_output(tmp_path, record, "reference"), reference, "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "probability"), probability, "float32", -9999)
+    _write_raster(runner.scene_output(tmp_path, record, "prithvi"), np.where(reference == 255, 255, probability > 0.5),
+                  "uint8", 255)
+    _write_raster(runner.scene_output(tmp_path, record, "mndwi"), np.array([[0.3, 0.3, -0.2, -0.3, -9999]] * 4),
+                  "float32", -9999)
+    runner.write_json(tmp_path / "outputs" / "prithvi_selection.json", {"selected_threshold": 0.35})
+    rows, _, products = runner.evaluate_exports(tmp_path, record, 0.15)
+    by_method = {r["method"]: r for r in rows}
+    assert list(by_method) == ["no_water", "mndwi_prediction", "prithvi", "prithvi_candon_selected"]
+    assert (by_method["prithvi"]["tp"], by_method["prithvi"]["fn"]) == (4, 4)
+    assert (by_method["prithvi_candon_selected"]["tp"], by_method["prithvi_candon_selected"]["fp"]) == (8, 4)
+    assert runner.scene_output(tmp_path, record, "prithvi_candon_selected") in products
+
+
+def test_secondary_row_is_declared_before_any_prithvi_score_and_required_before_vigan() -> None:
+    capstone = _carried(_notebook())[0]["capstone.py"]
+    baseline = capstone[capstone.index("def baseline("):capstone.index("def load_model(")]
+    assert '"prithvi_secondary_declaration"' in baseline and "PRITHVI_GRID" in baseline
+    infer = capstone[capstone.index("def infer("):capstone.index("def write_csv(")]
+    assert 'if role == "development":' in infer and "select_prithvi_threshold(root, record)" in infer
+    assert "must be selected on Candon before Vigan" in infer
+    assert "show_record('prithvi_selection.json')" in "\n".join(_source(c) for c in _notebook()["cells"])
