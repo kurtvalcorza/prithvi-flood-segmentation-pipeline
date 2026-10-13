@@ -138,6 +138,11 @@ WORKSHOP_SPEC = "2.2"
 WORKSHOP_NOTEBOOKS = {
     "DIMER_Philippines_Flood_Mapping_Capstone.ipynb": {
         "profile": "TASK-INFERENCE",
+        # Migrated to Notebook Spec 2.5 on 2026-10-13 (write-up layer, IEEE numbered citations). The E2E tutorial is
+        # still checked against NOTEBOOK_SPEC above, so the version is scoped per notebook here.
+        "spec": "2.5",
+        "kind": "CAPSTONE",
+        "citation_style": "ieee",
         "spec_doc": "docs/philippines-flood-mapping-capstone-spec.md",
         "parity": {
             "prithvi_reference/__init__.py": "src/prithvi_flood_segmentation_pipeline/__init__.py",
@@ -160,6 +165,10 @@ WORKSHOP_NOTEBOOKS = {
             "## References",
             "**AI Assistance Disclosure:**",
             "not required submissions",
+            "### Problem statement",
+            "### Data context",
+            "## What did not work",
+            "> **⚠️ Notice.**",
         ),
         "code_markers": (
             "ENV['MPLBACKEND'] = 'Agg'",
@@ -728,6 +737,38 @@ def _references_section(name: str, markdown: str) -> str:
     return markdown.split("## References", 1)[1]
 
 
+def _check_apa_citations(name: str, body: str, references: str) -> None:
+    """Every in-text citation (Author, Year) must resolve to a reference entry, and every entry must be cited."""
+    cited = {(re.split(r",| &| et al\.", author.strip())[0].strip(), year) for author, year in CITATION.findall(body)}
+    _check(cited, f"{name}: no in-text citations found")
+    entries = re.findall(r"(?m)^([A-Z][\w'À-ſ-]+), [^\n]*?\((\d{4})\)\. ", references)
+    _check(len(entries) == len(set(entries)), f"{name}: duplicate reference entries")
+    for author, year in sorted(cited):
+        _check((author, year) in entries, f"{name}: citation ({author}, {year}) has no reference entry")
+    for author, year in entries:
+        _check((author, year) in cited, f"{name}: reference {author} ({year}) is never cited")
+        _check(re.search(rf"(?m)^{re.escape(author)}, [^\n]*\({year}\)\.[^\n]*https://doi\.org/10\.", references) is not None,
+               f"{name}: reference {author} ({year}) must carry a DOI link")
+
+
+IEEE_CITATION = re.compile(r"\[(\d+)\](?!\()")
+
+
+def _check_ieee_citations(name: str, body: str, references: str) -> None:
+    """Notebook Spec 2.5 DOC14-DOC16: numbered IEEE citations, entries [1]..[N], each cited and each with a DOI link."""
+    _check(not CITATION.findall(body), f"{name}: mixes author-year citations into an IEEE-style notebook")
+    cited = {int(n) for n in IEEE_CITATION.findall(body)}
+    _check(cited, f"{name}: no in-text citations found")
+    entries = [int(n) for n in re.findall(r"(?m)^\[(\d+)\] ", references)]
+    _check(entries == list(range(1, len(entries) + 1)), f"{name}: reference entries must be numbered [1]..[N] in order")
+    for number in sorted(cited):
+        _check(number in entries, f"{name}: citation [{number}] has no reference entry")
+    for number in entries:
+        _check(number in cited, f"{name}: reference [{number}] is never cited")
+        line = re.search(rf"(?m)^\[{number}\] [^\n]*", references).group(0)
+        _check("https://doi.org/10." in line, f"{name}: reference [{number}] must carry a DOI link")
+
+
 def validate_workshop_notebooks() -> None:
     registry = _read(ROOT / "tutorials" / "README.md")
     for name, spec in WORKSHOP_NOTEBOOKS.items():
@@ -736,20 +777,23 @@ def validate_workshop_notebooks() -> None:
         _check((ROOT / spec["spec_doc"]).is_file(), f"{name}: design specification {spec['spec_doc']} missing")
         notebook = json.loads(_read(path))
         meta = notebook.get("metadata", {}).get("dimer", {})
+        spec_version = spec.get("spec", WORKSHOP_SPEC)
         expected = {
-            "notebook_spec": WORKSHOP_SPEC,
+            "notebook_spec": spec_version,
             "notebook_profile": spec["profile"],
             "notebook_mode": "WORKSHOP",
             "standalone": True,
             "requires_dimer_worker": False,
             "release_status": "Candidate",
         }
+        if "kind" in spec:
+            expected["notebook_kind"] = spec["kind"]
         for key, value in expected.items():
             _check(meta.get(key) == value, f"{name}: metadata.dimer.{key} must be {value!r}, found {meta.get(key)!r}")
         generated = meta.get("generated_from", {})
         _check(generated.get("repository") == f"kurtvalcorza/{REPO_NAME}", f"{name}: generated_from must name this repository")
         opening = _cell_source(notebook["cells"][0])
-        for needle in (f"`{spec['profile']}`", "`WORKSHOP`", f"`{WORKSHOP_SPEC}`", f"`{EXPECTED_MODEL_ID}`"):
+        for needle in (f"`{spec['profile']}`", "`WORKSHOP`", f"`{spec_version}`", f"`{EXPECTED_MODEL_ID}`"):
             _check(needle in opening, f"{name}: opening cell must declare {needle}")
         code_sources, markdown = [], []
         previous = None
@@ -776,19 +820,12 @@ def validate_workshop_notebooks() -> None:
             _check(marker in joined_code, f"{name}: code must contain {marker!r}")
         for marker in spec["markdown_markers"]:
             _check(marker in joined_md, f"{name}: markdown must contain {marker!r}")
-        # Every in-text citation (Author, Year) must resolve to a reference entry, and every entry must be cited.
         references = _references_section(name, joined_md)
         body = joined_md.split("## References", 1)[0]
-        cited = {(re.split(r",| &| et al\.", author.strip())[0].strip(), year) for author, year in CITATION.findall(body)}
-        _check(cited, f"{name}: no in-text citations found")
-        entries = re.findall(r"(?m)^([A-Z][\w'\u00c0-\u017f-]+), [^\n]*?\((\d{4})\)\. ", references)
-        _check(len(entries) == len(set(entries)), f"{name}: duplicate reference entries")
-        for author, year in sorted(cited):
-            _check((author, year) in entries, f"{name}: citation ({author}, {year}) has no reference entry")
-        for author, year in entries:
-            _check((author, year) in cited, f"{name}: reference {author} ({year}) is never cited")
-            _check(re.search(rf"(?m)^{re.escape(author)}, [^\n]*\({year}\)\.[^\n]*https://doi\.org/10\.", references) is not None,
-                   f"{name}: reference {author} ({year}) must carry a DOI link")
+        if spec.get("citation_style") == "ieee":
+            _check_ieee_citations(name, body, references)
+        else:
+            _check_apa_citations(name, body, references)
         files, hashes = _carried_literals(name, notebook)
         _check(set(files) == set(hashes), f"{name}: CARRIED_FILES and CARRIED_HASHES name different files")
         for carried, text in files.items():

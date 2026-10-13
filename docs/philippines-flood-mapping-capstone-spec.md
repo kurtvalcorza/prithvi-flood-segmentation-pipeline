@@ -12,7 +12,7 @@ Status: Design only. Dataset catalogue and metadata inspected; raster pixels, mo
 - Artifact: `tutorials/DIMER_Philippines_Flood_Mapping_Capstone.ipynb`.
 - Proposed host: `kurtvalcorza/prithvi-flood-segmentation-pipeline`.
 - Preserve the existing model tutorial; this is a separate scientific capstone using its verified model semantics.
-- Normative basis: DIMER Notebook Specification 2.2; profile `TASK-INFERENCE`, mode `WORKSHOP`, standalone. This is an end-to-end scientific investigation, not an E2E adaptation-profile claim.
+- Normative basis: DIMER Notebook Specification 2.5 since 2026-10-13 (2.2 before); profile `TASK-INFERENCE`, mode `WORKSHOP`, standalone. This is an end-to-end scientific investigation, not an E2E adaptation-profile claim.
 - Placement: optional capstone after Earth Observation; basic Python/Colab familiarity. Explain geospatial concepts before use.
 - Default: public pinned data, frozen model, no credentials/uploads, no manual restart, fresh Colab T4 Run all.
 - GPU execution only on authorised hosted compute; local verification is CPU-only.
@@ -90,7 +90,7 @@ Primary comparison: three systems on one shared clear/valid mask. Preserve resul
 - Use a fixed nonoverlapping window grid in version 1. Inspect seams as a limitation; do not count overlapping pixels multiple times.
 - Report the nominal output grid and native band-resolution differences; resampling to 10 m does not make every band a 10 m measurement.
 - Primary scientific endpoint: **clear-sky surface-water segmentation**.
-- A secondary map may show predicted water outside the verified permanent-water mask. Name it **candidate inundation**, not confirmed flood extent. Seasonal water, irrigation, reference dates and permanent-water errors remain confounders.
+- A secondary map may show predicted water outside the verified permanent-water mask. Name it **predicted water outside JRC 2018 permanent water** (named *candidate inundation* until 2026-10-13), not confirmed flood extent. JRC class 0 is treated as not water (outside the JRC 1984–2021 water extent in this export; check in `docs/release-verification.md`). Seasonal water, irrigation, reference dates and permanent-water errors remain confounders.
 - Existing permanent-water data alone are not an event-specific pre-flood observation. Do not claim a before/after change experiment unless a verified matched pre-event image is actually added.
 
 ## 7. Guided cell sequence

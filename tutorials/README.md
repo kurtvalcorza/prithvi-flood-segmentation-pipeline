@@ -16,19 +16,19 @@ reachable. Do not edit the notebook by hand; edit the package or the template an
 | Notebook | Profile | Mode | Carrier | Capability | Default runtime | Sample | BYOD | Run-all | Release status |
 |---|---|---|---|---|---|---|---|---|---|
 | `prithvi_flood_segmentation_colab.ipynb` | `E2E` | `GUIDED` | standalone (generated) | Prithvi-EO-2.0 flood-extent segmentation of six-band Sentinel-2 chips; static audit and one-time conversion of the pickled Lightning checkpoint into safetensors; 44 digest-pinned Sen1Floods11 chips with the official roles and refusal probes; pixel IoU / F1 / precision / recall against the no-water baseline for the frozen model; bounded fine-tuning of the neck, UPerNet decoder and head with frozen BatchNorm statistics; a three-way comparison on held-out test chips; segmentation of the upstream example chips; safetensors adapter export with verified reload parity | GPU (T4 or better); float16 autocast; about 2.5 GB of GPU memory | 44 chips + labels (88 pinned objects, about 104 MB) fetched at run time, no credential | zip or folder of GeoTIFF pairs + `pairs.csv` (optional `group` / `split` columns; at least 7 chips without a `split` column; gated off by default) | ~1 min of model time on a T4 after the 1.28 GB Hub download, the conversion, the 104 MB data fetch and building the isolated uv environment | **Candidate** — regenerated (generator /2.2, isolated uv environment, 2026-10-02 review fixes); blob `e04ef87b` (`eb79368`) passed a one-pass Colab CLI run on a fresh Colab Tesla T4 on 2026-10-08 (default path only), pending review for promotion; the 2026-09-25 Kaggle Tesla T4 record of `b6240ae` / `a61580e4` needed a restart and covers only that earlier blob; see `../docs/release-verification.md` |
-| `DIMER_Philippines_Flood_Mapping_Capstone.ipynb` | `TASK-INFERENCE` | `WORKSHOP` | standalone (carried package modules, stage runner, hash-locked dependency set and pinned WorldFloods v2 data manifest; isolated `uv` Python 3.12.12 environment; DIMER Notebook Specification 2.2) | Scientific capstone: frozen Prithvi versus a tuned MNDWI index and a no-water rule on two Typhoon Ompong (EMSR312) areas of Ilocos Sur, with Candon for every choice and Vigan held out; tiled 512 × 512 inference on the original georeferenced grid; a decision-threshold activity; error maps; candidate inundation outside JRC permanent water; georeferenced exports with fresh-process reload parity | GPU (T4) | two Sentinel-2 L1C scenes (about 164 MB) with masks and provenance, pinned by revision and SHA-256, no credential | deferred (links to the `E2E` tutorial) | 228 s of stage time on a Colab T4 (2026-09-27, blob `9ca6d8d02110`), after the isolated-environment install | **Candidate** — not qualified by the `E2E` tutorial's evidence; review-fix blob `b7f586e3cea0` passed a fresh Colab T4 run on 2026-09-28 (192.9 s of stage time); see `../docs/release-verification.md` |
+| `DIMER_Philippines_Flood_Mapping_Capstone.ipynb` | `TASK-INFERENCE` | `WORKSHOP` | standalone (carried package modules, stage runner, hash-locked dependency set and pinned WorldFloods v2 data manifest; isolated `uv` Python 3.12.12 environment; DIMER Notebook Specification 2.2) | Scientific capstone: frozen Prithvi versus a tuned MNDWI index and a no-water rule on two Typhoon Ompong (EMSR312) areas of Ilocos Sur, with Candon for every choice and Vigan held out; tiled 512 × 512 inference on the original georeferenced grid; a decision-threshold activity; error maps; a declared Candon-selected secondary Prithvi row; predicted water outside JRC 2018 permanent water; georeferenced exports with fresh-process reload parity | GPU (T4) | two Sentinel-2 L1C scenes (about 164 MB) with masks and provenance, pinned by revision and SHA-256, no credential | deferred (links to the `E2E` tutorial) | 228 s of stage time on a Colab T4 (2026-09-27, blob `9ca6d8d02110`), after the isolated-environment install | **Candidate** — not qualified by the `E2E` tutorial's evidence; review-fix blob `b7f586e3cea0` passed a fresh Colab T4 run on 2026-09-28 (192.9 s of stage time) and carrier-layout blob `4ace5596ae3c` a Colab CLI T4 run on 2026-10-03; the 2026-10-12 review-fix blob `8942560a1846` a Colab CLI T4 run on 2026-10-12 with identical metrics; the 2026-10-13 owner-decision blob `d7a964c6234b` (Notebook Spec 2.5) a Colab CLI T4 run on 2026-10-13 with unchanged primary metrics; see `../docs/release-verification.md` |
 
 
-## Philippines flood-mapping capstone (`WORKSHOP`, DIMER Notebook Specification 2.2)
+## Philippines flood-mapping capstone (`WORKSHOP`, `CAPSTONE`, DIMER Notebook Specification 2.5)
 
 `DIMER_Philippines_Flood_Mapping_Capstone.ipynb` is a separate scientific capstone built on this repository's model semantics. It
 does not change the `E2E` tutorial or its status. It asks whether a flood-trained foundation model beats a simple
 spectral index on Philippine scenes, and what that comparison can establish. The design is `../docs/philippines-flood-mapping-capstone-spec.md`.
 
-- **Reference notebook for Notebook Spec 2.2.** It implements the whole guided layer (GDL1–GDL15): learning
+- **Migrated to Notebook Spec 2.5 on 2026-10-13** (it was the reference notebook for 2.2). It adds the 2.5 write-up layer (problem statement, data context with label lineage, what did not work, an answer to the problem), the use notice and `notebook_kind: CAPSTONE`, and keeps the whole guided layer (GDL1–GDL15): learning
   objectives, **How to use this notebook**, a roadmap, a glossary, a prediction before every principal result, collapsible
   sample answers, a Predict → Change one thing → Run → Observe → Explain activity, collapsed **Infrastructure** cells,
-  troubleshooting and an evidence-based conclusion scaffold. Its scientific claims carry APA 7 in-text citations that
+  troubleshooting and an evidence-based conclusion scaffold. Its scientific claims carry numbered IEEE citations that
   resolve to a DOI-bearing References section. The references were retrieved through the Scite literature service and
   formatted from its stored metadata.
 - **Carrier.** The notebook is generated outside this repository (`generated_from` records the base revision, the
@@ -39,12 +39,17 @@ spectral index on Philippine scenes, and what that comparison can establish. The
   - the carried `prithvi_reference/` modules, manifest, licence and weight provenance equal this repository's;
   - `source.json` agrees with the metadata, and the data manifest pins one development and one held-out scene by
     dataset revision and SHA-256;
-  - every in-text citation has a reference entry, and every entry is cited.
+  - every numbered in-text citation has a reference entry [1]..[N] with a DOI link, every entry is cited, and no
+    author-year citation remains (the validator pins Notebook Spec 2.5 for this notebook only; the `E2E`
+    tutorial keeps its own pin).
 - **Data.** WorldFloods v2 at revision `1f3faa29…` is **CC BY-NC 4.0**. Attribution and the non-commercial restriction are
   kept separately from the Apache-2.0 code and weights. Course and distribution use needs maintainer review before
   release.
 - **Status.** **Candidate.** A fresh Colab T4 `Run all` of blob `9ca6d8d02110` passed on 2026-09-27. The 2026-09-28
-  review fixes (blob `b7f586e3cea0`) passed their own fresh Colab T4 run the same day.
+  review fixes (blob `b7f586e3cea0`) passed their own fresh Colab T4 run the same day, and the carrier-layout
+  blob `4ace5596ae3c` passed a Colab CLI T4 run on 2026-10-03. The 2026-10-12 review fixes (blob `8942560a1846`) passed a
+  Colab CLI T4 run on 2026-10-12 with identical metrics, and the 2026-10-13 owner-decision blob (`d7a964c6234b`) passed a
+  Colab CLI T4 run on 2026-10-13 with unchanged primary metrics and the new secondary row and areas.
   The dataset licensing review, the task-training overlap audit and confirmation of the BYOD applicability disposition
   (specification §11) are still to be recorded in `../docs/release-verification.md`.
 
