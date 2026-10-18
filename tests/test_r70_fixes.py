@@ -388,7 +388,8 @@ def test_r70_m5_no_local_home_paths_in_committed_files():
 
     tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
     pattern = re.compile(rb"/home/[a-z][a-z0-9_-]*/|Users[\\/]Kurt|KURTVA~1")
-    hits = [p for p in tracked if (ROOT / p).is_file() and pattern.search((ROOT / p).read_bytes())]
+    this = Path(__file__).resolve().relative_to(ROOT).as_posix()  # holds the pattern itself
+    hits = [p for p in tracked if p != this and (ROOT / p).is_file() and pattern.search((ROOT / p).read_bytes())]
     assert hits == []
 
 
