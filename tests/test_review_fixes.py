@@ -251,7 +251,7 @@ def test_fl_m2_section_8_names_the_provenance_of_each_example_chip(notebook):
     roles = {name: role for name, role, *_ in SAMPLE_RECORDS}
     assert roles.get("USA_430764") == "test" and "India_900498" not in roles and "Spain_7370579" not in roles
     md = _markdown(notebook)
-    assert "`USA_430764` is also one of this notebook's 12 test chips" in md and "upstream hand-labelled **test** split" in md
+    assert "`USA_430764` is one of the 12 exposed development chips" in md and "upstream hand-labelled **test** split" in md
     assert "which carry no labels here" not in md
     code = _cell(notebook, "new_predictions = pipe.predict(new_records)")
     assert "'also_a_sample_chip': sample_role.get(record['id'].removesuffix('_S2Hand'))" in code
@@ -263,26 +263,29 @@ def test_fl_m4_interpretation_and_activity(notebook):
     assert "recall rose from 0.776 to 0.8002" in closing and "precision fell from 0.9251 to 0.9165" in closing
     assert "leaves those numbers about" not in closing and "to see the frozen model win every epoch" not in md
     assert "## Optional activity: Predict → Change → Run → Observe → Explain" in md and "**Scope of a re-run:**" in md
-    assert "**Run** Sections 6, 7 and 8 in that order" in md
+    assert "**Run** Sections 6, 7, 8 and 9 in that order" in md
     assert "{id, image, label}" in md and "{{id" not in md
 
 
 def test_fl_m5_section_7_draws_the_mask_figure(notebook):
-    code = _cell(notebook, "delta_water_iou = ")
+    code = _cell(notebook, "comparison['change_water_iou']")
     assert "import matplotlib.pyplot as plt" in code and "plt.subplots(" in code and "plt.show()" in code
     assert "frozen_predictions['predictions']" in code
 
 
 def test_fl_m6_threshold_and_calibration_ownership_is_stated(notebook):
     md = _markdown(notebook)
-    section5 = md[md.index("## 5. The frozen model") : md.index("## 6. Bounded fine-tuning")]
+    section5 = md[md.index("## 5. The frozen model") : md.index("## 6. The pre-registered validation grid")]
     assert "no threshold is tuned here" in section5 and "calibrating the scores belong to whoever deploys the model" in section5
     assert "the notebook says the threshold and its cost trade-off are the deployment's" in (ROOT / "tutorials" / "README.md").read_text(encoding="utf-8")
 
 
-def test_fl_s1_declares_notebook_spec_2_2(notebook):
-    assert notebook["metadata"]["dimer"]["notebook_spec"] == "2.2"
-    assert "DIMER Notebook Specification 2.2 — **standalone** (§4)" in _markdown(notebook)
+def test_r70_m8_declares_notebook_spec_2_5_kind_and_use_notice(notebook):
+    dimer = notebook["metadata"]["dimer"]
+    assert dimer["notebook_spec"] == "2.5" and dimer["notebook_kind"] == "TUTORIAL"
+    md = _markdown(notebook)
+    assert "DIMER Notebook Specification 2.5 — **standalone** (§4)" in md and "> **⚠️ Notice.**" in md
+    assert "[1] D. Szwarcman" in md and "DIMER_ISOLATED_ENV" in md and "DIMER_MASK_FRESH_TEST" in md
 
 
 # --- FL-m7: the recorded source revision holds exactly the carried modules -------------------------------------------
@@ -372,7 +375,8 @@ def test_fl_m3_m4_byod_rerun_from_section_4_after_a_default_run(notebook, tmp_pa
         verify_converted=lambda *a, **k: {"files": [{"path": "stand-in"}]}, MANIFEST={"files": []},
         NOTEBOOK_SOURCE={"repository_revision": "stand-in"},
     )
-    markers = ("if USE_BYOD:", "frozen_test = pipe.evaluate(test_records)", "adapt_result = pipe.adapt(", "delta_water_iou = ", "new_predictions = pipe.predict(new_records)")
+    markers = ("if USE_BYOD:", "frozen_test = pipe.evaluate(test_records)", "grid_on = RUN_GRID", "comparison['change_water_iou']", "run_settings = {", "new_predictions = pipe.predict(new_records)")
+    request_det = torch.are_deterministic_algorithms_enabled()
     cells = [_cell(notebook, m).replace("importlib.metadata.version('terratorch')", "'stand-in'") for m in markers]
     cells[2] = cells[2].replace("EPOCHS = 4  #", "EPOCHS = 2  #").replace("LEARNING_RATE = 1e-5  #", "LEARNING_RATE = 1e-2  #")
     monkeypatch.chdir(tmp_path)
@@ -419,3 +423,9 @@ def test_fl_m3_m4_byod_rerun_from_section_4_after_a_default_run(notebook, tmp_pa
     run(cells[2:])  # Sections 6-8 with the default 'decoder': the notebook's own reload-parity assert must hold
     assert float(pipe.model.encoder.blocks[23].w) == 1.0
     assert not [n for n in pipe.adapter["trainable_names"] if n.startswith("encoder.")]
+    # R70-M3: every one of these CPU runs is exploratory; the fresh test is never fetched or scored
+    score_dir = tmp_path / "outputs" / "score_once"
+    assert not (score_dir / f"{STEM}_fresh_test_ledger.json").exists()
+    assert sorted(p.name for p in score_dir.glob("*exploratory_*.json"))
+    assert any("'fresh_test': 'not scored (exploratory)'" in line for line in out)
+    torch.use_deterministic_algorithms(request_det)

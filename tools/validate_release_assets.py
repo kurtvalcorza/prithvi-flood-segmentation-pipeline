@@ -67,15 +67,17 @@ CODE_MARKERS = (
     "restored_tensors = restore_pinned_base(pipe)",
     "frozen_predictions = pipe.predict(test_records)",
     # Stage 6: bounded decoder fine-tuning
-    "adapt_result = pipe.adapt(",
-    "trainable=TRAINABLE",
-    "lr=LEARNING_RATE",
+    "result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=lr, batch_size=BATCH_SIZE, trainable=trainable, seed=0",
+    "selection = select_config(grid_rows)",
+    "determinism = set_determinism(0)",
+    "GRID_HASH = grid_hash(grid_rows, selected_name)",
     # Stage 7: paired held-out comparison and the procedural assertions
     "adapted_test = pipe.evaluate(test_records)",
     "if adapt_result['history'][adapt_result['best_epoch']]['val_loss'] > adapt_result['history'][0]['val_loss']:",
     "if abs(adapted_val['model']['iou'][CLASS_NAMES[1]] - adapt_result['history'][adapt_result['best_epoch']]['val']['iou'][CLASS_NAMES[1]]) >= 1e-2:",
-    "comparison['verdict'] = {'adapted_vs_frozen_water_iou': 'improved' if delta_water_iou > 0 else ('no change' if delta_water_iou == 0 else 'worse'), 'delta': round(delta_water_iou, 4)}",
-    "'verdict': comparison['verdict']",
+    # R70-M3: the fresh test is scored only through the fail-closed score-once wiring (Section 8)
+    "fresh_result = score_fresh_test(settings=run_settings, checks=checks, score=score_fresh, score_dir='outputs/score_once'",
+    "'fresh_test': {k: fresh_result.get(k)",
     # Stage 8: new chips, artifact export, reload parity, provenance
     "new_predictions = pipe.predict(new_records)",
     "pipe.save_artifact(artifact_dir, metadata=",
@@ -127,7 +129,7 @@ INSTALL_CELL_MARKER = "# dimer: kernel cell"
 # Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.2"
+NOTEBOOK_SPEC = "2.5"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 # WORKSHOP-mode notebooks (DIMER Notebook Specification 2.2). They carry their own reference source, dependency lock,
@@ -257,7 +259,7 @@ COMMON_MARKDOWN_MARKERS = (
     "without the repository being",
     "It does **not** establish benchmark superiority",
     "## References",
-    f"- Repository model card: https://github.com/kurtvalcorza/{REPO_NAME}/blob/main/MODEL_CARD.md",
+    f"https://github.com/kurtvalcorza/{REPO_NAME}/blob/main/MODEL_CARD.md",
 )
 # Patterns that must never appear in tutorial code (comment-stripped), in any cell.
 FORBIDDEN_PATTERNS = (

@@ -8,7 +8,8 @@ This template configures an E2E flood-segmentation workflow: the pinned Prithvi 
 pickle) is digest-verified, statically audited and converted once into safetensors, 44 hand-labelled Sen1Floods11
 chips are fetched from the public bucket, validated and assigned the official roles, the frozen model is scored
 against the no-water baseline, a bounded decoder fine-tuning runs in the kernel, the held-out chips are scored
-again, new chips are segmented, and the adapter is exported and reloaded.
+again, a pre-registered fresh test is scored under fail-closed score-once rules, the upstream example chips are
+segmented, and the adapter is exported and reloaded.
 """
 # ruff: noqa: E501  -- markdown prose and code-cell text are kept on single lines for readable rendering
 
@@ -66,27 +67,31 @@ TEMPLATE = {
         "(1.28 GB) from the Hub, statically audits the Lightning pickle against an allow-list, converts it once into safetensors "
         "with a pinned digest, rebuilds the architecture from the installed `terratorch` package and loads it strictly, fetches 44 "
         "hand-labelled Sen1Floods11 chips (104 MB of digest-verified GeoTIFFs, no credential), validates them and assigns the "
-        "official roles (24 training, 8 validation, 12 test), segments the held-out chips with the frozen model and scores them "
-        "against the no-water baseline, runs a bounded fine-tuning of the neck, decoder and head, scores the same chips again, "
-        "segments the three example chips shipped with the upstream repository, exports the adapter as safetensors with a "
+        "official roles (24 training, 8 validation, 12 exposed development test), scores the frozen model against the no-water "
+        "baseline, runs the pre-registered validation grid of three bounded fine-tunings on a GPU (deterministic kernels; on CPU "
+        "the grid is off and the run is exploratory), compares the selected system with the frozen model on the exposed "
+        "development test, scores the pre-registered 23-chip fresh test (53 MB more from the same bucket) only when every "
+        "pre-registered setting holds on a T4, segments the three example chips shipped with the upstream repository, exports the adapter as safetensors with a "
         "manifest, and reloads that artifact into a fresh pipeline to verify prediction parity. The default path needs no "
         "repository clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC "
         "2.0 §5). On a T4 the whole path takes a few minutes of model time after the downloads; building the isolated "
-        "environment is the slowest step."
+        "environment is the slowest step. Set the environment variable `DIMER_MASK_FRESH_TEST=1` to skip fetching and scoring "
+        "the fresh test (the run is then exploratory)."
     ),
     "byod": (
         "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4 and re-run from that cell to supply your own "
         "labelled chips — as `BYOD_PATH` (a path in the runtime, which works on Colab, Kaggle and Jupyter) or, when it is empty, "
         "through the Colab upload dialog — as a zip (or folder) holding `pairs.csv` (columns `id`, `image`, `label`) beside six-band 512 × 512 GeoTIFF chips "
-        "(blue, green, red, narrow NIR, SWIR 1, SWIR 2 — reflectance in [0, 1] or × 10 000) and single-band label rasters "
+        "(blue, green, red, narrow NIR, SWIR 1, SWIR 2 — Sentinel-2 **L1C top-of-atmosphere** reflectance in [0, 1] or × 10 000, "
+        "the model's training input; not L2A surface reflectance, not HLS) and single-band label rasters "
         "(0 = no water, 1 = water, −1 = no data); at least **seven** labelled chips, with some water among them (the seeded "
         "split keeps four for training, one for validation and two for test). An optional `group` column (the scene or event "
         "a chip was cut from) keeps each group in one role, and an optional `split` column (`train`, `validation`, `test`) sets "
         "the roles yourself; without either, chips are split one by one with a printed warning. Your chips then flow through "
         "the same contract — validation, frozen baseline, adaptation, "
         "held-out evaluation, inference, artifact export and reload parity. The expected schema, the ceilings and the privacy "
-        "guidance are stated in the Prerequisites and in Section 4, and uploaded files stay inside this runtime. BYOD is optional "
-        "and never part of the default path."
+        "guidance are stated in the Prerequisites and in Section 4, and uploaded files stay inside this runtime. A BYOD run is "
+        "exploratory: it never scores the pre-registered fresh test. BYOD is optional and never part of the default path."
     ),
     "guided": {
         "opening": [
@@ -95,8 +100,8 @@ TEMPLATE = {
             'baseline that predicts *land* everywhere, what a bounded fine-tuning of the decoder does to a model that already trained on this dataset, and how the '
             'change is exported and reloaded. No prior experience with Prithvi, TerraTorch or remote sensing models is assumed; terms are explained where they '
             'first matter and again in the **Glossary** at the end. A GPU runtime (T4 or better) is expected.\n\n**Input → Model → Output.**\n\n| | Segmentation | '
-            'Bounded fine-tuning |\n|---|---|---|\n| Input | six-band 512 × 512 Sentinel-2 reflectance chips (blue, green, red, narrow NIR, SWIR 1, SWIR 2) | '
-            'hand-labelled Sen1Floods11 chips with 0 / 1 / −1 masks (24 training, 8 validation, 12 test, official splits) |\n| Model | the Prithvi-EO-2.0 ViT-L '
+            'Bounded fine-tuning |\n|---|---|---|\n| Input | six-band 512 × 512 Sentinel-2 L1C top-of-atmosphere reflectance chips (blue, green, red, narrow NIR, SWIR 1, SWIR 2) | '
+            'hand-labelled Sen1Floods11 chips with 0 / 1 / −1 masks (24 training, 8 validation, 12 exposed development test, official splits; 23 fresh test chips) |\n| Model | the Prithvi-EO-2.0 ViT-L '
             'encoder, pyramid neck, UPerNet decoder and two-class head, loaded from audited, converted safetensors | the same model; only the neck, decoder and '
             'head (15.1 M parameters) are trained, the encoder and BatchNorm statistics stay frozen |\n| Output | a per-pixel water mask, softmax scores, water '
             "fraction; pixel IoU / F1 beside the no-water baseline | the adapted model's numbers beside the frozen model's on the same held-out chips, and a 60 MB "
@@ -105,29 +110,32 @@ TEMPLATE = {
             'are **infrastructure** — the isolated environment, the carried package and the audited model snapshot — and their cells are collapsed; you may run '
             'them without studying them. The learning path starts in Section 4. Form fields (`# @param`) are the only values meant to be edited, and the defaults '
             'reproduce the recorded run. Before each principal result the notebook asks you to **Predict**; after it come **What to notice** and a collapsible '
-            '**Check your reasoning** with a worked answer from the recorded run (the Kaggle Tesla T4 run of 25 September 2026 recorded in '
-            '`docs/release-verification.md`). Every adaptation starts from the pinned base, so re-running Section 6 with other settings is a fresh experiment. '
+            '**Check your reasoning** with a worked answer from the recorded run (the Colab CLI T4 run of 8 October 2026 of the previous revision, '
+            '`docs/execution-evidence/2026-10-08-eb79368/`; the fresh test has no recorded number yet). Every adaptation starts from the pinned base, so re-running Section 6 with other settings is a fresh, exploratory experiment. '
             '**Troubleshooting**, a **Glossary** and a **Conclusion** template are at the end. Writing your predictions down is optional.\n\n**Roadmap:** 1–3 '
             'infrastructure → 4 the labelled chips, validation and refusals *(evaluation practice)* → 5 the frozen model against the no-water baseline *(core '
-            'concept)* → 6 bounded fine-tuning of the neck, decoder and head *(core concept)* → 7 the held-out paired comparison *(evaluation practice)* → 8 new '
-            'chips, export and fresh reload *(engineering)* → interpretation, troubleshooting, glossary and your conclusion.'
+            'concept)* → 6 the pre-registered validation grid of bounded fine-tunings *(core concept)* → 7 the exposed development test *(evaluation practice)* → 8 the '
+            'pre-registered fresh test *(evaluation practice)* → 9 upstream example chips, export and fresh reload *(engineering)* → interpretation, troubleshooting, glossary and your conclusion.'
         ],
     },
     "pipeline_class": "PrithviFloodPipeline",
     "model_load": "PrithviFloodPipeline.from_pretrained(weights_dir=WEIGHTS_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), report=print)",
     "weights_key": "prithvi-eo-2.0-300m-tl-sen1floods11",
-    "modules": ["pipeline.py", "samples.py", "metrics.py"],
+    "modules": ["pipeline.py", "samples.py", "metrics.py", "scoring.py"],
     "entry_module": "pipeline.py",
     "runtime_imports": ["torch", "timm", "lightning", "tifffile"],
     "title": "Prithvi-EO-2.0 flood mapping — DIMER E2E segmentation fine-tuning tutorial (standalone)",
     "badges": BADGES,
     "capability": "flood-extent segmentation of six-band Sentinel-2 chips with a Prithvi-EO-2.0 ViT-L encoder and UPerNet decoder, held-out IoU/F1 against a no-water baseline, and bounded fine-tuning of the decoder to labelled chips",
     "intro": (
-        "Prithvi-EO-2.0 (Szwarcman et al., 2024) is NASA and IBM's foundation model for Harmonized Landsat Sentinel-2 imagery: a "
+        "Prithvi-EO-2.0 [1] is NASA and IBM's foundation model for Harmonized Landsat Sentinel-2 imagery: a "
         "ViT-L masked autoencoder pretrained on 4.2 M global multispectral samples, here in its `TL` variant with temporal and "
         "location embeddings. The checkpoint packaged here is the upstream authors' fine-tune for flood mapping — the 300 M-parameter "
-        "encoder, a learned pyramid neck over four encoder depths, a UPerNet decoder and a two-class head — trained on the 446 "
-        "hand-labelled Sentinel-2 chips of Sen1Floods11 with TerraTorch.\n\n"
+        "encoder, a learned pyramid neck over four encoder depths, a UPerNet decoder and a two-class head — fine-tuned with "
+        "TerraTorch on the 252-chip official training split of Sen1Floods11's hand-labelled Sentinel-2 L1C chips, with the 89-chip "
+        "validation split used for early stopping (the 90 test chips and the 15 Bolivia chips were not trained on; inferred from the "
+        "checkpoint's 630 steps = 42 × ⌊252/16⌋). Prithvi's pretraining used HLS imagery, which is derived from Sentinel-2 L1C, so "
+        "the same acquisitions may appear, unlabelled, in pretraining.\n\n"
         "Two things about this row are handled in the open. **The upstream asset is a pickle** — a PyTorch Lightning checkpoint. "
         "Section 3 downloads and digest-verifies it, statically lists every global the pickle would import (a state dict of tensors "
         "and nothing else), refuses anything outside that allow-list, unpickles it exactly once through torch's weights-only loader, "
@@ -135,15 +143,17 @@ TEMPLATE = {
         "`terratorch` package and loads that file strictly. **The model is already fine-tuned on this dataset**, so the bounded "
         "adaptation in Section 6 is a demonstration of the contract on chips it has seen the distribution of, selected by validation "
         "loss with the frozen model as epoch 0; the honest number is the paired held-out comparison in Section 7, and the point of "
-        "the contract is the same recipe applied to *your* labelled chips from another sensor, season or region."
+        "the contract is the same recipe applied to *your* labelled chips from another sensor, season or region. The grid, the "
+        "fresh test and the reading rule are fixed in advance in `docs/prithvi-flood-preregistration.md`."
     ),
     "learning_objectives": (
         "install the pinned runtime; inspect the carried pipeline, dataset and metrics modules; stage and digest-verify a pickled "
         "checkpoint, read its static audit and see it converted into safetensors; fetch and validate real labelled multispectral "
         "chips with an ignore class; read pixel IoU, F1, precision and recall against a no-water baseline; run a bounded decoder "
-        "fine-tuning with explicit hyperparameters and frozen BatchNorm statistics; compare the adapted and frozen models on the "
-        "same held-out chips; segment new chips; and export a safetensors adapter that reloads against the pinned base with "
-        "verified parity."
+        "fine-tuning with explicit hyperparameters and frozen BatchNorm statistics; select a configuration on validation by a "
+        "pre-registered rule; tell an exposed development test from a pre-registered fresh test and read a bootstrap interval "
+        "against a practical tolerance; segment unlabelled upstream example chips; and export a safetensors adapter that reloads "
+        "against the pinned base with verified parity."
     ),
     "exclusions": (
         "the Sentinel-1 (SAR) route of Sen1Floods11, the temporal and location embeddings (the packaged fine-tune ran without "
@@ -155,16 +165,17 @@ TEMPLATE = {
         "- **Runtime:** a fresh supported **GPU** runtime (Google Colab T4 or better, or a Jupyter kernel with a CUDA GPU and Python 3.12): the ViT-L encoder runs in float16 autocast and the default adaptation needs about 2.5 GB of GPU memory; on CPU one 512 × 512 chip takes tens of seconds and the adaptation would take an hour. About 3 GB of disk is needed for the checkpoint and its conversion; building the isolated environment (terratorch pulls torchgeo, lightning and their dependencies) takes several minutes the first time and is reused on a re-run.",
         "- **Knowledge:** what a multispectral reflectance chip is (bands, scaling, no-data), what a pixel-wise segmentation mask and an ignore class are, and how IoU, precision and recall are read against a majority baseline.",
         "- **Executable serialization handled explicitly:** the pinned checkpoint is a pickle. It is digest-verified, statically audited against an allow-list (audit digest pinned) and unpickled **once** through torch's weights-only loader to produce the safetensors the model is actually loaded from. No Hub-hosted Python module is imported; `terratorch` is installed from PyPI at a pinned version.",
-        "- **Data contract:** a record is `{id, image, label}` — a (6, 512, 512) reflectance array (or a GeoTIFF; 13-band Sentinel-2 L1C files are reduced to the six Prithvi bands) with values in [0, 1] or × 10 000, no-data 0 or −9999, and a (512, 512) mask with 0 / 1 / −1. Validation is structural: nothing checks that the bands are the right six in the right order, that the reflectance is corrected, or that the label belongs to the chip.",
+        "- **Data contract:** a record is `{id, image, label}` — a (6, 512, 512) Sentinel-2 **L1C top-of-atmosphere** reflectance array (or a GeoTIFF; 13-band L1C files are reduced to the six Prithvi bands B2, B3, B4, B8A, B11, B12) with values in [0, 1] or × 10 000, on the 10 m grid (20 m bands resampled), no-data 0 or −9999, and a (512, 512) mask with 0 / 1 / −1. This is what the packaged model was trained on. An atmospherically corrected L2A product or an HLS product is a different input distribution. L1C products from processing baseline 04.00 onwards (from 25 January 2022) carry a +1000 DN offset that must be subtracted before scaling; left in, it adds about 0.1 to every band and still passes the range check. Validation is structural: nothing checks the band order, the product level, the offset, the pixel size or CRS, or that the label belongs to the chip.",
         "- **Privacy:** Do not upload confidential or restricted data to a hosted runtime unless you are authorized to process it there — commercial imagery under licence or unreleased disaster assessments are exactly that. The default path uploads nothing.",
-        "- **External access (data):** besides the Hub, the default path fetches 88 pinned objects (44 chips and their labels, about 104 MB) from the public Sen1Floods11 bucket `storage.googleapis.com/sen1floods11` over HTTPS, digest-verified before decoding; Sen1Floods11 is CC BY 4.0 (Cloud to Street).",
+        "- **External access (data):** besides the Hub, the default path fetches 88 pinned objects (44 chips and their labels, about 104 MB) and, on a pre-registered T4 run, 46 more (the 23 fresh-test chips and labels, 53 MB) from the public Sen1Floods11 bucket `storage.googleapis.com/sen1floods11` over HTTPS, digest-verified before decoding; Sen1Floods11 is CC BY 4.0 (Cloud to Street).",
     ],
     "cells": [
         {
             "md": (
                 "## 4. Sample chips, validation and roles\n\n"
                 "The default dataset is 44 hand-labelled Sentinel-2 chips of Sen1Floods11 — 24 from the official training split, "
-                "8 from the validation split and 12 from the test split, drawn across the ten flood-event regions from the chips "
+                "8 from the validation split and 12 from the test split (the **exposed development test**: scored in every earlier "
+                "run and read during the 2026-09-19 build sweep), drawn across the ten flood-event regions from the chips "
                 "whose label is at least 60 % valid and 3 % water — fetched by object path from the public bucket and refused on "
                 "any byte-size or SHA-256 mismatch (`fetch_corpus`). Each 13-band `S2Hand` GeoTIFF is reduced to the six Prithvi "
                 "bands, scaled from reflectance × 10 000 to reflectance, and its no-data replaced by 0, exactly as the upstream "
@@ -355,25 +366,29 @@ TEMPLATE = {
                 "`pipe.predict` standardises each chip with the upstream datamodule's band statistics, runs the encoder, neck, "
                 "decoder and head in float16 autocast, and returns the argmax mask, the softmax scores (the model's outputs, not "
                 "calibrated probabilities) and the water fraction per chip. `pipe.evaluate` pools the labelled pixels of every "
-                "held-out chip into one confusion matrix (−1 pixels excluded) and reports the per-class IoU, mean IoU, accuracy, "
+                "chip into one confusion matrix (−1 pixels excluded) and reports the per-class IoU, mean IoU, accuracy, "
                 "and the water class's precision, recall and F1; the **no-water baseline** — every pixel predicted as land — is "
                 "scored on the same pixels, so its accuracy is exactly the land fraction and its water IoU is 0.\n\n"
                 "**Decision rule and who owns the threshold.** Each pixel takes the class with the higher score (argmax, the same "
                 "as a 0.5 water score); no threshold is tuned here. Choosing a water threshold — trading missed water against "
                 "false alarms — and calibrating the scores belong to whoever deploys the model, on validation chips from their own "
                 "area and sensor; this notebook does neither.\n\n"
-                "Look for: a water IoU well above 0 on the test chips (0.730, F1 0.844, in the recorded Kaggle T4 run of "
-                "2026-09-25), a validation water IoU around 0.86, precision against recall, and per-chip water fractions that track "
+                "This section scores the validation chips and the 12 chips of the **exposed development test**. They are held out "
+                "only at chip level: all ten of their events are in the upstream training split and six of them touch a training "
+                "or validation chip, so their numbers are within-event, and they were already read when the defaults were chosen. "
+                "The fresh test is scored only in Section 8.\n\n"
+                "Look for: a water IoU well above 0 on the exposed development test (0.730, F1 0.844, in the Colab CLI T4 run of "
+                "2026-10-08), a validation water IoU around 0.86, precision against recall, and per-chip water fractions that track "
                 "the labels. These are sample-sanity numbers on 12 and 8 chips, not the benchmark. If you re-run this cell after "
                 "Section 6, it first puts the adapted tensors back to the pinned base, so *frozen* always means the packaged model.\n\n"
-                "**Predict before running:** the packaged model was fine-tuned on Sen1Floods11. Will the test chips (ten regions) or "
-                "the validation chips be easier for it?"
+                "**Predict before running:** the packaged model was fine-tuned on Sen1Floods11. Will the exposed development chips "
+                "(ten regions) or the validation chips be easier for it?"
             ),
             "code": (
                 "import time\n\n"
                 "t0 = time.perf_counter()\n"
                 "# SWP-F: the pinned base of every tensor adaptation may change is kept once, before any training; restore_pinned_base()\n"
-                "# puts it back. Section 5 scores the pinned base on a re-run (then re-run Sections 6-8 in order), and Section 6 starts\n"
+                "# puts it back. Section 5 scores the pinned base on a re-run (then re-run Sections 6-9 in order), and Section 6 starts\n"
                 "# every adaptation from it.\n"
                 "if '_PINNED_BASE' not in globals():\n"
                 "    _adaptable = set(pipe._trainable('decoder+last_block'))\n"
@@ -388,10 +403,11 @@ TEMPLATE = {
                 "    return changed\n\n"
                 "restored_tensors = restore_pinned_base(pipe)\n"
                 "if restored_tensors:\n"
-                "    print({{'restored_pinned_base': len(restored_tensors), 'note': 'adapted tensors put back to the pinned base; re-run Sections 6-8 in order'}})\n"
+                "    print({{'restored_pinned_base': len(restored_tensors), 'note': 'adapted tensors put back to the pinned base; re-run Sections 6-9 in order'}})\n"
+                "# The exposed development test (the 12 former test chips) and validation; the fresh test is scored only in Section 8.\n"
                 "frozen_test = pipe.evaluate(test_records)\n"
                 "frozen_val = pipe.evaluate(val_records)\n"
-                "print({{'seconds': round(time.perf_counter() - t0, 1), 'metric': frozen_test['metric']}})\n"
+                "print({{'seconds': round(time.perf_counter() - t0, 1), 'split': 'exposed development test', 'metric': frozen_test['metric']}})\n"
                 "print({{'baseline_no_water_test': {{k: frozen_test['baseline_no_water'][k] for k in ('iou', 'accuracy', 'f1')}}}})\n"
                 "print({{'frozen_test': {{k: frozen_test['model'][k] for k in ('iou', 'mean_iou', 'accuracy', 'precision', 'recall', 'f1')}}}})\n"
                 "print({{'frozen_validation': {{k: frozen_val['model'][k] for k in ('iou', 'f1')}}}})\n"
@@ -405,103 +421,140 @@ TEMPLATE = {
         {
             "md": (
                 '**What to notice:** `baseline_no_water_test` beside `frozen_test`, precision against recall, the validation IoU, and the per-chip water fractions.\n\n<details><summary>Check '
-                "your reasoning</summary>Validation. In the recorded run the frozen test water IoU was 0.7301 (F1 0.8440, accuracy 0.9440 against the baseline's "
-                '0.8049) while validation reached 0.8614. Twelve test chips from ten regions include harder scenes; differences between splits this small say more '
-                'about which chips were drawn than about the model. Note also the direction of the errors: test precision 0.9251 is above recall 0.776, so '
+                "your reasoning</summary>Validation. In the recorded run the frozen exposed-development water IoU was 0.7301 (F1 0.8440, accuracy 0.9440 against the baseline's "
+                '0.8049) while validation reached 0.8614. Twelve chips from ten regions include harder scenes; differences between splits this small say more '
+                'about which chips were drawn than about the model. Note also the direction of the errors: precision 0.9251 is above recall 0.776, so '
                 'the frozen model misses some water rather than inventing it.</details>'
             ),
         },
         {
             "md": (
-                "## 6. Bounded fine-tuning of the neck, decoder and head\n\n"
+                "## 6. The pre-registered validation grid of bounded fine-tunings\n\n"
                 "`pipe.adapt` trains the 46 tensors of the pyramid neck, the UPerNet decoder and the head (15.1 M parameters — "
-                "4.7 % of the model) and nothing else: the ViT-L encoder is frozen (no gradient is stored for it), and every "
-                "BatchNorm layer keeps its running statistics, because batches of two chips would corrupt them. Each step takes "
-                "two chips with a seeded horizontal or vertical flip, computes the cross-entropy over the labelled pixels "
-                "(−1 ignored) and takes an AdamW step at a small fixed learning rate with gradient-norm clipping and float16 loss "
-                "scaling. Epoch 0 records the frozen model's validation loss and metrics; the epoch with the lowest validation "
-                "loss is kept — which can be epoch 0, since the packaged model already trained on this dataset.\n\n"
-                "Watch the validation loss: in the build record it dipped at epoch 2 and rose again by epoch 4 — the sign that a "
-                "small learning rate and validation selection are doing their job on a model that has little left to learn from "
-                "24 chips it has already seen the distribution of. Four epochs (48 steps) take under a minute on a T4. "
-                "`TRAINABLE = 'decoder+last_block'` also unfreezes the last encoder block (27.7 M parameters). The cell first restores "
-                "the pinned base kept in Section 5 (`started_from` is printed), so a re-run with other settings is a fresh experiment, "
-                "not continued training, and epoch 0 is always the frozen model.\n\n"
-                "**Predict before running:** at which epoch will the validation loss be lowest — 0 (the frozen model), the middle, or "
-                "the last?"
+                "4.7 % of the model) and nothing else: the ViT-L encoder is frozen, and every BatchNorm layer keeps its running "
+                "statistics, because batches of two chips would corrupt them. Each step takes two chips with a seeded flip, computes "
+                "the cross-entropy over the labelled pixels (−1 ignored) and takes an AdamW step with gradient-norm clipping and "
+                "float16 loss scaling. Epoch 0 records the frozen model's validation loss; the epoch with the lowest validation loss "
+                "is kept — which can be epoch 0, since the packaged model already trained on this dataset.\n\n"
+                "**Where the defaults came from, and the grid.** The default learning rate 10⁻⁵ came from a 2026-09-19 build sweep "
+                "(`MODEL_CARD.md`) that read the 12 test chips' IoU for each arm — so those chips are now the *exposed development "
+                "test* — and that sweep's numbers also carried a reflectance-scaling bug fixed on 2026-09-25. The choice is now made "
+                "on validation only, by the rule fixed in `docs/prithvi-flood-preregistration.md`: three configurations — **C0** "
+                "(10⁻⁵, `decoder`, the default), **C1** (3 × 10⁻⁵, `decoder`) and **C2** (10⁻⁵, `decoder+last_block`, 27.7 M "
+                "parameters) — each trained from the pinned base with everything else fixed; a challenger replaces C0 only if its "
+                "kept epoch's validation loss is lower by at least 0.005. The 8 validation chips also steered the upstream early "
+                "stopping, so this selection is not independent of the packaged model.\n\n"
+                "**On a GPU the grid runs** (about a minute on a T4). **On CPU it is off**: the cell trains the form's settings "
+                "(the recorded selection, C0, until a hosted record exists) and the run is exploratory. Training is deterministic: "
+                "`set_determinism` switches on `torch.use_deterministic_algorithms(True)` without `warn_only` and the cuDNN flags, "
+                "and because torch has no deterministic CUDA kernel for the bilinear resize, the adaptive pooling in the UperNet "
+                "decoder or the masked cross-entropy, the carried pipeline replaces those three with equivalent matmul and "
+                "elementwise versions (`DETERMINISTIC_REPLACEMENTS`, patched into the rebuilt TerraTorch model; the library is not "
+                "edited). The printed `grid_hash` lets two runs be compared digit for digit.\n\n"
+                "**Predict before running:** will either challenger beat C0 by 0.005 in validation loss?"
             ),
             "code": (
                 "EPOCHS = 4  # @param {{type:\"integer\"}}\n"
-                "LEARNING_RATE = 1e-5  # @param {{type:\"number\"}}\n"
                 "BATCH_SIZE = 2  # @param {{type:\"integer\"}}\n"
+                "RUN_GRID = True  # @param {{type:\"boolean\"}}\n"
+                "# Used only when the grid is off (CPU, or RUN_GRID = False): any value other than the recorded selection is exploratory.\n"
+                "LEARNING_RATE = 1e-5  # @param {{type:\"number\"}}\n"
                 "TRAINABLE = 'decoder'  # @param [\"decoder\", \"decoder+last_block\"]\n\n"
+                "determinism = set_determinism(0)\n"
+                "print({{'determinism': determinism, 'replaced_ops': list(DETERMINISTIC_REPLACEMENTS), 'patched_sites': len(getattr(pipe.model, 'deterministic_patches', []))}})\n\n"
                 "def report(entry):\n"
                 "    row = {{'epoch': entry['epoch'], 'train_loss': None if entry['train_loss'] is None else round(entry['train_loss'], 4), 'val_loss': round(entry['val_loss'], 4)}}\n"
                 "    if 'val' in entry:\n"
                 "        row['val_water_iou'] = entry['val']['iou']['water']\n"
-                "        row['val_f1'] = entry['val']['f1']\n"
                 "    if 'note' in entry:\n"
                 "        row['note'] = entry['note']\n"
                 "    print(row)\n\n"
-                "restored_tensors = restore_pinned_base(pipe)  # SWP-F: every adaptation starts from the pinned base\n"
-                "print({{'started_from': 'pinned base' + (f' (restored {{len(restored_tensors)}} tensors an earlier run changed)' if restored_tensors else '')}})\n"
+                "def run_config(lr, trainable):\n"
+                "    restore_pinned_base(pipe)  # SWP-F: every adaptation starts from the pinned base\n"
+                "    result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=lr, batch_size=BATCH_SIZE, trainable=trainable, seed=0, progress=report)\n"
+                "    names = set(result['trainable_names'])\n"
+                "    return result, {{k: v.detach().cpu().clone() for k, v in pipe.model.state_dict().items() if k in names}}\n\n"
+                "grid_on = RUN_GRID and pipe.device.startswith('cuda')\n"
                 "t0 = time.perf_counter()\n"
-                "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, trainable=TRAINABLE, progress=report)\n"
+                "grid_runs = {{}}\n"
+                "if grid_on:\n"
+                "    for cfg in GRID:\n"
+                "        print({{'config': cfg['name'], 'lr': cfg['lr'], 'trainable': cfg['trainable']}})\n"
+                "        grid_runs[cfg['name']] = run_config(cfg['lr'], cfg['trainable'])\n"
+                "    grid_rows = [grid_row(name, run[0]) for name, run in grid_runs.items()]\n"
+                "    selection = select_config(grid_rows)\n"
+                "else:\n"
+                "    name = config_for(LEARNING_RATE, TRAINABLE) or 'off-grid'\n"
+                "    grid_runs[name] = run_config(LEARNING_RATE, TRAINABLE)\n"
+                "    grid_rows = [grid_row(name, grid_runs[name][0])]\n"
+                "    selection = {{'selected': name, 'rule': 'grid off (' + ('RUN_GRID = False' if RUN_GRID is False else 'no GPU') + '): trained the form settings; exploratory, validation only'}}\n"
+                "selected_name = selection['selected']\n"
+                "GRID_HASH = grid_hash(grid_rows, selected_name)\n"
+                "# The selected system: reset to the pinned base, then overlay the selected config's kept state.\n"
+                "adapt_result, selected_state = grid_runs[selected_name]\n"
+                "restore_pinned_base(pipe)\n"
+                "_current = pipe.model.state_dict()\n"
+                "pipe.model.load_state_dict({{**_current, **{{k: v.to(_current[k].device) for k, v in selected_state.items()}}}}, strict=True)\n"
+                "pipe.model.eval()\n"
+                "pipe.adapter = dict(adapt_result)\n"
+                "SELECTED_FINGERPRINT = state_fingerprint(pipe.model, adapt_result['trainable_names'])\n"
                 "adapt_seconds = round(time.perf_counter() - t0, 1)\n"
-                "print({{'trainable_parameters': adapt_result['n_trainable'], 'total_parameters': adapt_result['n_total'], 'steps': adapt_result['n_steps'], 'best_epoch': adapt_result['best_epoch'], 'precision': adapt_result['precision'], 'batchnorm': adapt_result['batchnorm'], 'seconds': adapt_seconds}})"
+                "for row in grid_rows:\n"
+                "    print({{'grid_row': row}})\n"
+                "print({{'grid': 'on' if grid_on else 'off (exploratory)', 'selection': selection, 'grid_hash': GRID_HASH}})\n"
+                "print({{'selected': selected_name, 'trainable_parameters': adapt_result['n_trainable'], 'steps': adapt_result['n_steps'], 'best_epoch': adapt_result['best_epoch'], 'precision': adapt_result['precision'], 'batchnorm': adapt_result['batchnorm'], 'seconds': adapt_seconds}})"
             ),
         },
         {
             "md": (
-                '**What to notice:** epoch 0 (`note: frozen model`), the validation loss per epoch, `best_epoch`, and the trainable share of the parameters.\n\n<details><summary>Check '
-                'your reasoning</summary>The middle. In the recorded run validation loss went from 0.1306 (frozen) to its minimum 0.1178 at epoch 2 and rose again by '
-                'epoch 4, so epoch 2 was kept (validation water IoU 0.8614 → 0.8748). Validation selection stopped the drift that the last two epochs '
-                'started.</details>'
+                '**What to notice:** each config\'s epoch 0 (`note: frozen model`) and validation loss per epoch, the `selection` line, and the `grid_hash`.\n\n<details><summary>Check '
+                'your reasoning</summary>In the recorded run (C0 only, before the grid existed) validation loss went from 0.1306 (frozen) to its minimum 0.1178 at '
+                'epoch 2 and rose again by epoch 4, so epoch 2 was kept (validation water IoU 0.8614 → 0.8748). A challenger must reach 0.1128 or lower to replace C0; the grid\'s own numbers will be '
+                'recorded with the hosted evaluation (`docs/release-verification.md`). Validation selection with the frozen model as a candidate stops drift.</details>'
             ),
         },
         {
             "md": (
-                "## 7. Held-out evaluation: the paired comparison\n\n"
-                "The test chips were never used for training or epoch selection (they come from the official test split). The "
-                "adapted model is scored exactly as the frozen model was in Section 5, and the table puts the baseline, the "
-                "frozen and the adapted numbers side by side. The cell stops only on what the procedure guarantees — the kept epoch's "
-                "validation loss is no higher than the frozen model's (epoch 0 is a candidate), and re-scoring the validation chips "
-                "reproduces the kept epoch's positive-class IoU within 0.01 (float16 kernels are not bit-reproducible across batch "
-                "sizes) — and records the test direction as a **verdict** (`improved`, `no change` or `worse`) instead of asserting one: on this sample the water IoU moved from 0.730 to 0.746 in the recorded run, a sample-sanity "
-                "observation on 12 chips with no dispersion estimate, not a quality claim. Twelve chips from ten regions "
-                "cannot separate a real gain from noise; with your own chips from a new sensor or region, the gap between "
-                "frozen and adapted is the number to watch. A figure then shows two test chips in false colour beside their label, the "
-                "frozen and adapted masks, and where the adapted mask finds water (blue), misses it (red) or invents it (amber).\n\n"
-                "*Evaluation practice.* **Predict before running:** if the test water IoU rises by about 0.015, is that evidence the "
+                "## 7. The exposed development test: a paired comparison for continuity\n\n"
+                "The selected system is scored on the same 12 chips as the frozen model in Section 5, side by side with the "
+                "baseline. These chips are the **exposed development test**: they were scored in every earlier run and their IoU "
+                "was read during the 2026-09-19 build sweep that fixed the default learning rate, so they are reported for "
+                "continuity and are *not* the endpoint — that is the fresh test in Section 8. The cell stops only on what the "
+                "procedure guarantees — the kept epoch's validation loss is no higher than the frozen model's, and re-scoring the "
+                "validation chips reproduces the kept epoch's positive-class IoU within 0.01 — and writes "
+                "`outputs/{stem}_evaluation_report.json` atomically (a temporary file, then a rename). In the recorded run the water "
+                "IoU on these chips moved from 0.730 to 0.746: 12 chips, one seed, no interval, not a finding. A figure then shows "
+                "two chips in false colour beside their label, the frozen and adapted masks, and where the adapted mask finds water "
+                "(blue), misses it (red) or invents it (amber).\n\n"
+                "*Evaluation practice.* **Predict before running:** if the water IoU here rises by about 0.015, is that evidence the "
                 "fine-tuning helped?"
             ),
             "code": (
                 "adapted_test = pipe.evaluate(test_records)\n"
                 "adapted_val = pipe.evaluate(val_records)\n"
-                "comparison = {{}}\n"
+                "comparison = {{'split': 'exposed development test (12 chips; scored in every earlier run; descriptive only)'}}\n"
                 "for key in ('mean_iou', 'accuracy', 'precision', 'recall', 'f1'):\n"
                 "    comparison[key] = {{'baseline_no_water': frozen_test['baseline_no_water'][key], 'frozen': frozen_test['model'][key], 'adapted': adapted_test['model'][key]}}\n"
                 "comparison['water_iou'] = {{'baseline_no_water': frozen_test['baseline_no_water']['iou']['water'], 'frozen': frozen_test['model']['iou']['water'], 'adapted': adapted_test['model']['iou']['water']}}\n"
+                "comparison['change_water_iou'] = round(adapted_test['model']['iou'][CLASS_NAMES[1]] - frozen_test['model']['iou'][CLASS_NAMES[1]], 4)\n"
+                "comparison['reading'] = 'descriptive: the exposed development test decides nothing; the endpoint is the fresh test (Section 8)'\n"
                 "for key, row in comparison.items():\n"
                 "    print({{key: row}})\n"
-                "delta_water_iou = adapted_test['model']['iou'][CLASS_NAMES[1]] - frozen_test['model']['iou'][CLASS_NAMES[1]]\n"
-                "# SWP-A: the direction is a recorded verdict, never an assert, so a BYOD run always reaches export and result.json.\n"
-                "comparison['verdict'] = {{'adapted_vs_frozen_water_iou': 'improved' if delta_water_iou > 0 else ('no change' if delta_water_iou == 0 else 'worse'), 'delta': round(delta_water_iou, 4)}}\n"
-                "print({{'verdict': comparison['verdict']}})\n"
                 "print({{'validation_water_iou': {{'frozen': frozen_val['model']['iou']['water'], 'adapted': adapted_val['model']['iou']['water']}}, 'validation_loss': {{'frozen': adapt_result['history'][0]['val_loss'], 'kept_epoch': adapt_result['history'][adapt_result['best_epoch']]['val_loss']}}}})\n"
                 "evaluation_report = {{\n"
                 "    'model': {{'id': MODEL_ID, 'revision': MODEL_REVISION, 'key': MODEL_KEY}},\n"
                 "    'data_source': data_source,\n"
                 "    'dataset': dataset_report,\n"
-                "    'frozen': {{'test': frozen_test, 'validation': frozen_val}},\n"
-                "    'adapted': {{'test': adapted_test, 'validation': adapted_val}},\n"
+                "    'frozen': {{'exposed_development_test': frozen_test, 'validation': frozen_val}},\n"
+                "    'adapted': {{'exposed_development_test': adapted_test, 'validation': adapted_val}},\n"
                 "    'comparison': comparison,\n"
+                "    'grid': {{'on': grid_on, 'rows': grid_rows, 'selection': selection, 'grid_hash': GRID_HASH}},\n"
+                "    'determinism': determinism,\n"
                 "    'adaptation': {{k: v for k, v in adapt_result.items() if k not in ('history', 'trainable_names')}},\n"
                 "    'history': adapt_result['history'],\n"
                 "    'adaptation_seconds': adapt_seconds,\n"
                 "}}\n"
-                "with open('outputs/{stem}_evaluation_report.json', 'w', encoding='utf-8') as f:\n"
-                "    json.dump(evaluation_report, f, indent=2)\n"
+                "atomic_write_json('outputs/{stem}_evaluation_report.json', evaluation_report)\n"
                 "# Contract integrity (not model quality): epoch 0 is a selection candidate, and re-scoring reproduces the kept epoch.\n"
                 "if adapt_result['history'][adapt_result['best_epoch']]['val_loss'] > adapt_result['history'][0]['val_loss']:\n"
                 "    raise RuntimeError('contract: the kept epoch has a higher validation loss than the frozen model, which epoch selection cannot produce')\n"
@@ -509,7 +562,7 @@ TEMPLATE = {
                 "    raise RuntimeError('contract: re-scoring the validation chips does not reproduce the kept epoch')\n"
                 "print({{'report': 'outputs/{stem}_evaluation_report.json'}})\n"
                 '\n'
-                '# Two held-out chips: false colour, label, frozen and adapted masks, and where the adapted model is right or wrong.\n'
+                '# Two exposed development chips: false colour, label, frozen and adapted masks, and where the adapted model is right or wrong.\n'
                 'import matplotlib.pyplot as plt\n'
                 '\n'
                 'shown = test_records[:2]\n'
@@ -540,51 +593,141 @@ TEMPLATE = {
         },
         {
             "md": (
-                '**What to notice:** the `water_iou` row (baseline, frozen, adapted), `accuracy`, the `verdict` line, and the validation numbers beside the test numbers.\n\n<details><summary>Check '
-                'your reasoning</summary>Not on its own. In the recorded run the test water IoU moved from 0.7301 to 0.7458 (verdict *improved*) (F1 0.8440 → 0.8544, accuracy 0.9440 → '
-                '0.9468): recall rose from 0.776 to 0.8002 (fewer flooded pixels missed) while precision fell from 0.9251 to 0.9165 (a few more false alarms). '
-                'With 12 chips, one seed and no dispersion estimate, a change of this size is within what a different draw of chips could produce; it shows '
-                'the contract ran and did no harm. A repeated split or more chips would be needed to call it a gain.</details>'
+                '**What to notice:** the `water_iou` row (baseline, frozen, adapted), `change_water_iou`, and the validation numbers beside it.\n\n<details><summary>Check '
+                'your reasoning</summary>No. In the recorded run the water IoU on these chips moved from 0.7301 to 0.7458 (F1 0.8440 → 0.8544, accuracy 0.9440 → '
+                '0.9468): recall rose from 0.776 to 0.8002 while precision fell from 0.9251 to 0.9165. These 12 chips were already read when the default '
+                'learning rate was chosen, they come from events in the training split, and there is one seed and no interval; the change shows the contract '
+                'ran and did no harm. The pre-registered fresh test in Section 8 is where a change is read, with an interval and a tolerance.</details>'
             ),
         },
         {
             "md": (
-                "## 8. New chips, artifact export and fresh reload\n\n"
-                "The adapted model segments the three example chips that ship with the upstream repository (`India_900498`, "
+                "## 8. The pre-registered fresh test\n\n"
+                "The **fresh test** is 23 official Sen1Floods11 test chips that this notebook never scored: the test chips outside "
+                "the sample that pass the same label filter (at least 60 % valid, 3 % water), minus the two upstream example chips "
+                "shown in Section 9, pinned by size and SHA-256 (`FRESH_TEST_RECORDS`, digest `FRESH_POOL_DIGEST`). **Plainly:** "
+                "they come from the same 8 flood events as the training data and 20 of the 23 lie within one chip width of a "
+                "training or validation chip, so this measures *within-event generalisation to unseen chips*, not new events (the "
+                "official Bolivia event, held out from everything, would be an out-of-event check; it is not used here).\n\n"
+                "**Reading rule (pre-registered).** One primary endpoint: the pooled water IoU of the selected system minus the "
+                "frozen model on the fresh test, from unrounded per-chip confusion counts, with a paired bootstrap 95 % interval "
+                "over chips (10 000 resamples, seed 0). The verdict is *improved* or *worse* only if the interval excludes 0 and "
+                "the change is at least 0.02; otherwise *no detectable change*. With 23 correlated chips from 8 events the power "
+                "is low: the expected verdict for a small fine-tuning effect is *no detectable change*, and the interval "
+                "understates event-level uncertainty.\n\n"
+                "**Score-once.** The cell scores the fresh test only if every pre-registered setting holds — the pinned sample, "
+                "epochs 4, batch 2, seed 0, the full grid and its selection, float16 on a **Tesla T4**, the determinism flags, "
+                "the bootstrap — and re-checks, just before scoring, that the grid is complete and matches, that the model state "
+                "is the selected system, and the fresh-pool digest. It resets to the pinned base to score the frozen model, then "
+                "reloads the selected state and checks its fingerprint before scoring it. Any other run (CPU, another GPU, BYOD, a "
+                "form edit, the optional activity, `DIMER_MASK_FRESH_TEST=1`) is **exploratory**: the fresh test is not fetched "
+                "or scored, and a record of validation and the exposed development test goes to "
+                "`outputs/score_once/{stem}_fresh_test_exploratory_<n>.json` with the settings that differ. The first completed "
+                "scoring in a runtime is labelled *pre-registered evaluation (this runtime)*; a repeat is a *reproduction* "
+                "(`_reproduction_<n>`). A runtime cannot know about other runtimes: the evaluation of record is the first hosted "
+                "T4 run listed in `docs/release-verification.md`, and once it is recorded every run is a reproduction. A failed "
+                "fetch, decode or check is not a look; the report and the ledger are written atomically.\n\n"
+                "**Predict before running:** will the interval exclude 0?"
+            ),
+            "code": (
+                "MASKED = os.environ.get(MASK_ENV) == '1'\n"
+                "device_name = torch.cuda.get_device_name(0) if pipe.device.startswith('cuda') else 'cpu'\n"
+                "run_settings = {{\n"
+                "    'data_source': data_source,\n"
+                "    'splits': {{'train': len(train_records), 'validation': len(val_records), 'exposed_development_test': len(test_records), 'fresh_test': len(FRESH_TEST_RECORDS)}},\n"
+                "    'fresh_pool_digest': fresh_pool_digest(),\n"
+                "    'epochs': adapt_result['epochs'],\n"
+                "    'batch_size': adapt_result['batch_size'],\n"
+                "    'seed': adapt_result['seed'],\n"
+                "    'grid': [{{'name': n, 'lr': r[0]['lr'], 'trainable': r[0]['trainable']}} for n, r in grid_runs.items()],\n"
+                "    'selection_margin': SELECTION_MARGIN,\n"
+                "    'precision': adapt_result['precision'],\n"
+                "    'device': device_name,\n"
+                "    'determinism': determinism_state(),\n"
+                "    'n_boot': N_BOOT,\n"
+                "    'boot_seed': BOOT_SEED,\n"
+                "    'masked': MASKED,\n"
+                "}}\n"
+                "checks = {{\n"
+                "    'grid_complete_and_matching': grid_on and [r['name'] for r in grid_rows] == [c['name'] for c in GRID] and select_config(grid_rows)['selected'] == selected_name and grid_hash(grid_rows, selected_name) == GRID_HASH,\n"
+                "    'model_is_selected_system': pipe.adapter is not None and state_fingerprint(pipe.model, adapt_result['trainable_names']) == SELECTED_FINGERPRINT,\n"
+                "    'fresh_pool_digest': fresh_pool_digest() == FRESH_POOL_DIGEST,\n"
+                "}}\n\n"
+                "def score_fresh():\n"
+                "    fresh_records = fetch_fresh_test(cache_dir='weights/sen1floods11_fresh')  # a failure here is not a look\n"
+                "    try:\n"
+                "        restore_pinned_base(pipe)  # reset: the frozen model is recomputed, never taken from memory\n"
+                "        frozen = chip_confusions(pipe, fresh_records)\n"
+                "    finally:\n"
+                "        current = pipe.model.state_dict()\n"
+                "        pipe.model.load_state_dict({{**current, **{{k: v.to(current[k].device) for k, v in selected_state.items()}}}}, strict=True)\n"
+                "        pipe.model.eval()\n"
+                "        pipe.adapter = dict(adapt_result)\n"
+                "    if state_fingerprint(pipe.model, adapt_result['trainable_names']) != SELECTED_FINGERPRINT:\n"
+                "        raise RuntimeError('the reloaded state is not the selected system')\n"
+                "    selected = chip_confusions(pipe, fresh_records)\n"
+                "    return {{'chips': [r['source_id'] for r in fresh_records], 'frozen': frozen, 'selected': selected}}\n\n"
+                "exploratory_payload = {{'validation_water_iou': {{'frozen': frozen_val['model']['iou']['water'], 'adapted': adapted_val['model']['iou']['water']}}, 'exposed_development_test': comparison, 'grid': grid_rows, 'selection': selection, 'grid_hash': GRID_HASH, 'determinism': run_settings['determinism'], 'device': device_name}}\n"
+                "try:\n"
+                "    fresh_result = score_fresh_test(settings=run_settings, checks=checks, score=score_fresh, score_dir='outputs/score_once', stem='{stem}', exploratory_payload=exploratory_payload)\n"
+                "except Exception as exc:  # a failed fetch, decode or check: nothing recorded, not a look; the rest of the notebook still runs\n"
+                "    fresh_result = {{'test_look': 'not scored (failed before completion; not a look)', 'error': str(exc)[:200]}}\n"
+                "if fresh_result['test_look'] == LABEL_EXPLORATORY:\n"
+                "    print({{'fresh_test': 'not scored (exploratory)', 'masked': MASKED, 'settings_differing': fresh_result['settings_differing'], 'record': fresh_result['file']}})\n"
+                "elif 'bootstrap' in fresh_result:\n"
+                "    boot = fresh_result['bootstrap']\n"
+                "    print({{'test_look': fresh_result['test_look'], 'chips': boot['n_chips'], 'frozen_water_iou': round(boot['frozen_water_iou'], 4), 'selected_water_iou': round(boot['selected_water_iou'], 4), 'change': round(boot['delta'], 4), 'ci95': [round(v, 4) for v in boot['ci95']], 'verdict': fresh_result['verdict'], 'report': fresh_result['file']}})\n"
+                "else:\n"
+                "    print(fresh_result)"
+            ),
+        },
+        {
+            "md": (
+                '**What to notice:** `test_look` (or why the fresh test was not scored and which settings differ), the `change` with its `ci95`, and the `verdict`.\n\n<details><summary>Check '
+                'your reasoning</summary>Probably not. On 23 within-event chips a fine-tuning effect of the size seen on the exposed development test (about 0.015) is '
+                'below the 0.02 tolerance, so the pre-registered reading is *no detectable change* unless the interval is narrow and the change large. No hosted '
+                'number is recorded for this revision yet; `docs/release-verification.md` lists the evaluation of record and its reproductions once they exist. On '
+                'CPU the cell reports *not scored (exploratory)* and names the settings that differ (`device`, `grid`).</details>'
+            ),
+        },
+        {
+            "md": (
+                "## 9. Upstream example chips, artifact export and fresh reload\n\n"
+                "The selected system segments the three example chips that ship with the upstream repository (`India_900498`, "
                 "`Spain_7370579`, `USA_430764` — 13-band Sentinel-2 L1C files reduced to the six bands). All three come from the "
-                "upstream hand-labelled **test** split, so the packaged model never trained on them, but they are not all new here: "
-                "`USA_430764` is also one of this notebook's 12 test chips, already scored with its label in Sections 5 and 7 (the "
-                "cell prints `also_a_sample_chip: 'test'` for it), so for that chip the mask is a consistency check. `India_900498` "
-                "and `Spain_7370579` are not among the 44 sample chips; their upstream labels are not fetched here, so the predicted "
-                "water fraction and the written mask are a sanity check, not an evaluation.\n\n"
-                "`pipe.save_artifact` writes the trained tensors (about 60 MB) as `adapter.safetensors`, with a `manifest.json` "
-                "recording the artifact format, the base model id and revision, the digest of the converted base file, the "
-                "adaptation scope, the tensor names, the file size and SHA-256, the training configuration and the epoch history "
-                "(OUT8). `PrithviFloodPipeline.from_artifact` re-verifies the base file, checks the artifact manifest, scope and "
-                "digest **before** deserialising, rebuilds the model and overlays the tensors — a fresh object from files, not "
-                "the in-memory model (VER2). The cell asserts the same held-out positive-class IoU within 0.001 and score maps within 0.01 (VER4: float16 tolerances; on one device they are usually identical)."
+                "upstream hand-labelled **test** split, so the packaged model never trained on them, but they are not new here: "
+                "`USA_430764` is one of the 12 exposed development chips (the cell prints `also_a_sample_chip: 'test'` for it), and "
+                "`India_900498` and `Spain_7370579` are excluded from the fresh test because they are shown here. Their upstream "
+                "labels are not fetched, so the predicted water fraction and the written mask are a sanity check, not an "
+                "evaluation.\n\n"
+                "`pipe.save_artifact` writes the trained tensors as `adapter.safetensors` into a temporary directory with a "
+                "`manifest.json` (artifact format, base model id and revision, the digest of the converted base file, the adaptation "
+                "scope, the tensor names, file size and SHA-256, training configuration and epoch history; OUT8) and renames it into "
+                "place only when complete. `PrithviFloodPipeline.from_artifact` re-verifies the base file, checks the artifact "
+                "manifest, scope and digest **before** deserialising, rebuilds the model and overlays the tensors — a fresh object "
+                "from files, not the in-memory model (VER2). The cell asserts the same exposed-development positive-class IoU within 0.001 and score maps within 0.01 (VER4: float16 tolerances; on one device they are usually identical)."
             ),
             "code": (
                 "import importlib.metadata\n"
-                "import platform\n"
-                "import shutil\n\n"
+                "import io\n"
+                "import platform\n\n"
                 "import tifffile\n\n"
                 "example_dir = WEIGHTS_DIR / 'examples'\n"
                 "new_records = [{{'id': path.stem, 'image': read_chip(path, band_indices=S2_L1C_BAND_INDICES), 'source': str(path.name)}} for path in sorted(example_dir.glob('*.tif'))]\n"
                 "new_predictions = pipe.predict(new_records)\n"
                 "sample_role = {{name: role for name, role, *_ in SAMPLE_RECORDS}}  # the 44 sample chips by scene\n"
                 "for record, pred in zip(new_records, new_predictions['predictions']):\n"
-                "    tifffile.imwrite(f'outputs/{stem}_mask_' + record['id'] + '.tif', pred['mask'])\n"
+                "    buffer = io.BytesIO()\n"
+                "    tifffile.imwrite(buffer, pred['mask'])\n"
+                "    atomic_write_bytes(f'outputs/{stem}_mask_' + record['id'] + '.tif', buffer.getvalue())\n"
                 "    print({{'chip': record['id'], 'water_fraction': pred['class_fraction']['water'], 'also_a_sample_chip': sample_role.get(record['id'].removesuffix('_S2Hand')), 'note': 'upstream test-split chip; no label fetched here'}})\n"
-                "with open('outputs/{stem}_predictions.json', 'w', encoding='utf-8') as f:\n"
-                "    json.dump({{'model': new_predictions['model'], 'classes': new_predictions['classes'], 'decision_rule': new_predictions['decision_rule'], 'predictions': [{{'id': p['id'], 'class_fraction': p['class_fraction']}} for p in new_predictions['predictions']]}}, f, indent=2)\n\n"
+                "atomic_write_json('outputs/{stem}_predictions.json', {{'model': new_predictions['model'], 'classes': new_predictions['classes'], 'decision_rule': new_predictions['decision_rule'], 'predictions': [{{'id': p['id'], 'class_fraction': p['class_fraction']}} for p in new_predictions['predictions']]}})\n\n"
                 "artifact_dir = Path('outputs/{stem}_adapter')\n"
-                "shutil.rmtree(artifact_dir, ignore_errors=True)\n"
-                "pipe.save_artifact(artifact_dir, metadata={{'tutorial': '{stem}', 'data_source': data_source}})\n"
+                "pipe.save_artifact(artifact_dir, metadata={{'tutorial': '{stem}', 'data_source': data_source, 'selected_config': selected_name, 'grid_hash': GRID_HASH}})\n"
                 "artifact_manifest = json.loads((artifact_dir / 'manifest.json').read_text(encoding='utf-8'))\n"
                 "print({{'artifact': str(artifact_dir), 'format': artifact_manifest['format'], 'trainable': artifact_manifest['adapter']['trainable'], 'tensors': len(artifact_manifest['tensors']), 'bytes': artifact_manifest['files'][0]['bytes'], 'sha256': artifact_manifest['files'][0]['sha256'][:16] + '...'}})\n\n"
                 "reloaded = PrithviFloodPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, device=pipe.device)\n"
-                "reloaded_test = reloaded.evaluate(test_records)\n"
+                "reloaded_test = reloaded.evaluate(test_records)  # the exposed development test, never the fresh test\n"
                 "before = pipe.predict(test_records[:2])['predictions']\n"
                 "after = reloaded.predict(test_records[:2])['predictions']\n"
                 "parity = {{'positive_iou_diff': round(abs(reloaded_test['model']['iou'][CLASS_NAMES[1]] - adapted_test['model']['iou'][CLASS_NAMES[1]]), 6), 'metrics_identical': reloaded_test['model'] == adapted_test['model'], 'max_abs_score_diff': max(float(np.abs(a['scores'] - b['scores']).max()) for a, b in zip(before, after))}}\n"
@@ -593,7 +736,7 @@ TEMPLATE = {
                 "result_payload = {{\n"
                 "    'notebook_source': NOTEBOOK_SOURCE,\n"
                 "    'repository_revision': NOTEBOOK_SOURCE['repository_revision'],\n"
-                "    'model': {{**evaluation_report['model'], 'model_license': MODEL_LICENSE, 'device': pipe.device, 'source': pipe.source}},\n"
+                "    'model': {{**evaluation_report['model'], 'model_license': MODEL_LICENSE, 'device': pipe.device, 'device_name': device_name, 'source': pipe.source}},\n"
                 "    'provenance': {{\n"
                 "        'source_asset': [e for e in MANIFEST['files'] if e['path'] == SOURCE_CKPT_NAME],\n"
                 "        'pickle_audit_sha256': PICKLE_AUDIT_SHA256,\n"
@@ -601,19 +744,22 @@ TEMPLATE = {
                 "        'pickle_unpickled_once_for_conversion': True,\n"
                 "        'served_from_pickle': False,\n"
                 "        'remote_code_executed': False,\n"
+                "        'deterministic_patches': list(getattr(pipe.model, 'deterministic_patches', [])),\n"
                 "        'data_objects': 2 * len(SAMPLE_RECORDS),\n"
+                "        'fresh_test_objects': 2 * len(FRESH_TEST_RECORDS),\n"
                 "        'data_base_url': CORPUS_BASE_URL,\n"
                 "        'data_license': CORPUS_LICENSE,\n"
                 "    }},\n"
                 "    'runtime': {{'python': platform.python_version(), 'torch': torch.__version__, 'timm': timm.__version__, 'lightning': lightning.__version__, 'tifffile': tifffile.__version__, 'terratorch': importlib.metadata.version('terratorch')}},\n"
                 "    'data_source': data_source,\n"
-                "    'comparison': comparison,\n"
-                "    'verdict': comparison['verdict'],\n"
+                "    'determinism': run_settings['determinism'],\n"
+                "    'grid': {{'on': grid_on, 'rows': grid_rows, 'selection': selection, 'grid_hash': GRID_HASH}},\n"
+                "    'exposed_development_test': comparison,\n"
+                "    'fresh_test': {{k: fresh_result.get(k) for k in ('test_look', 'settings_differing', 'bootstrap', 'verdict', 'file', 'error')}},\n"
                 "    'artifact': {{'dir': str(artifact_dir), 'sha256': artifact_manifest['files'][0]['sha256'], 'bytes': artifact_manifest['files'][0]['bytes']}},\n"
                 "    'reload_parity': parity,\n"
                 "}}\n"
-                "with open('outputs/{stem}_result.json', 'w', encoding='utf-8') as f:\n"
-                "    json.dump(result_payload, f, indent=2)\n\n"
+                "atomic_write_json('outputs/{stem}_result.json', result_payload)\n\n"
                 "print('outputs/:')\n"
                 "for path in sorted(Path('outputs').rglob('*')):\n"
                 "    if path.is_file():\n"
@@ -622,73 +768,88 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the water fraction of the three example chips (and which one is also a sample test chip), the artifact's size and tensor count, and `reload_parity`.\n\n<details><summary>Check "
-                'your reasoning</summary>No labels are fetched for the example chips, so their water fractions are a sanity check only; `USA_430764` repeats a '
-                'test chip Section 7 already scored. In the recorded run the 46-tensor, about '
-                '60 MB adapter reloaded into a fresh pipeline with identical held-out metrics (`positive_iou_diff` 0.0, `metrics_identical` True, `max_abs_score_diff` '
-                '0.0).</details>'
+                "**What to notice:** the water fraction of the three example chips (and which one is an exposed development chip), the artifact's size and tensor count, and `reload_parity`.\n\n<details><summary>Check "
+                'your reasoning</summary>No labels are fetched for the example chips, so their water fractions are a sanity check only; `USA_430764` repeats an '
+                'exposed development chip. In the recorded run the 46-tensor, about 60 MB adapter reloaded into a fresh pipeline with identical metrics '
+                '(`positive_iou_diff` 0.0, `metrics_identical` True, `max_abs_score_diff` 0.0); identity was observed there, and the check itself is the float16 '
+                'tolerance.</details>'
             ),
         },
     ],
     "closing": (
         "## Interpretation and limits\n\n"
-        "**On the default sample**, 12 held-out chips from the official test split, the packaged flood model finds water with "
-        "an IoU near 0.73 (F1 0.84 in the recorded run) against a no-water baseline that scores 0, and its precision (0.93) is "
-        "well above its recall (0.78): it misses some water rather than inventing it. A bounded fine-tuning of its neck, decoder "
-        "and head on 24 chips, selected by validation loss with the frozen model as a candidate, moved the water IoU from 0.7301 "
-        "to 0.7458 in the recorded run by trading along that line: recall rose from 0.776 to 0.8002 (fewer flooded pixels "
-        "missed) while precision fell from 0.9251 to 0.9165 (a few more false alarms). On 12 chips with one seed that is a "
-        "small, unconfirmed change, not a measured gain. **If you ran your own chips (BYOD),** the numbers describe your chips "
-        "under the split printed as `split_rule` in Section 4, and the frozen numbers are the packaged model's (Section 5 "
-        "restores the pinned base before scoring). That is the claim: the adaptation contract runs end to end on real labelled multispectral chips, "
-        "the pickle is audited and converted rather than served, and the artifact that carries the change is 60 MB and "
-        "reloads with identical outputs. It is not a claim that this sample improves the model — the model already "
-        "trained on this dataset — nor that 12 chips measure its skill.\n\n"
-        "The numbers are sample-sanity evidence: one seeded run, 12 test chips from ten regions, no dispersion estimate, "
-        "pixel-pooled metrics that let large chips dominate, and hand labels that carry their own uncertainty at water edges "
-        "and under thin cloud. Nothing here measures the model on Sentinel-1, on scenes larger than a chip, or on regions and "
-        "seasons outside Sen1Floods11.\n\n"
-        "Three things to carry to real data. **The six bands and their scaling are the contract:** blue, green, red, narrow "
-        "NIR, SWIR 1, SWIR 2 in that order, reflectance in [0, 1]; a different band order or an uncorrected product is "
-        "segmented without complaint and silently wrong. **Split by scene or event, not by chip:** neighbouring chips are "
-        "near-duplicates, and a random split makes memorisation look like skill. **Read the baseline first:** on a chip with "
-        "5 % water the no-water baseline is 95 % accurate; only the water IoU, precision and recall say whether the model "
-        "did anything.\n\n"
+        "**On the exposed development test**, 12 chips from the official test split, the packaged flood model finds water "
+        "with an IoU near 0.73 (F1 0.84 in the recorded run) against a no-water baseline that scores 0, and its precision "
+        "(0.93) is well above its recall (0.78): it misses some water rather than inventing it. The selected fine-tuning "
+        "moved that IoU from 0.7301 to 0.7458 in the recorded run: recall rose from 0.776 to 0.8002 while precision "
+        "fell from 0.9251 to 0.9165. Those chips are held out only "
+        "at chip level and were read when the defaults were chosen, so they describe, they do not decide. **The fresh test** "
+        "(Section 8) is the one pre-registered reading: 23 unseen chips from the same 8 events, a paired bootstrap interval "
+        "and a 0.02 tolerance, scored only on a T4 under the pre-registered settings; it measures within-event "
+        "generalisation, not new events, and its power is low. **If you ran your own chips (BYOD),** the run is exploratory, "
+        "the numbers describe your chips under the split printed as `split_rule` in Section 4, and the frozen numbers are "
+        "the packaged model's. That is the claim: the adaptation contract runs end to end on real labelled multispectral "
+        "chips with deterministic training, the pickle is audited and converted rather than served, and the 60 MB artifact "
+        "reloads with outputs equal within the float16 tolerances (identical in the recorded run). It is not a claim that "
+        "this sample improves the model — the model already trained on this dataset — nor that these chips measure its "
+        "skill.\n\n"
+        "The numbers are sample-sanity evidence: pixel-pooled metrics that let large chips dominate, hand labels that "
+        "carry their own uncertainty at water edges and under thin cloud, and validation chips that also steered the "
+        "upstream early stopping. Nothing here measures the model on Sentinel-1, on scenes larger than a chip, or on "
+        "regions, events and seasons outside Sen1Floods11.\n\n"
+        "Three things to carry to real data. **The input is Sentinel-2 L1C top-of-atmosphere reflectance in six bands:** "
+        "blue, green, red, narrow NIR, SWIR 1, SWIR 2 in that order, reflectance in [0, 1], with the post-2022 +1000 DN "
+        "offset removed and the 20 m bands on the 10 m grid. An L2A (surface reflectance) or HLS product, a different band "
+        "order or a left-in offset is segmented without complaint and silently shifted from what the model learned. "
+        "**Split by scene or event, not by chip:** neighbouring chips are near-duplicates, and a random split makes "
+        "memorisation look like skill — which is why the exposed development and fresh tests here are labelled "
+        "within-event. **Read the baseline first:** on a chip with 5 % water the no-water baseline is 95 % accurate; only "
+        "the water IoU, precision and recall say whether the model did anything.\n\n"
         "Successful execution proves that the recorded repository revision's pipeline modules, carried in this standalone "
         "notebook, can acquire and digest-verify a pickled upstream checkpoint, audit and convert it into safetensors without "
         "executing anything outside the audited allow-list, rebuild the model from the installed package, fetch and validate "
-        "digest-pinned real labelled chips, execute bounded fine-tuning, evaluate against a baseline and the frozen model on "
-        "held-out chips, and emit the shown machine-readable artifacts — without the repository being reachable. It does "
-        "**not** establish benchmark superiority, production fitness, or flood-mapping skill beyond the checks shown.\n\n"
+        "digest-pinned real labelled chips, run a pre-registered validation grid with deterministic kernels, evaluate against "
+        "a baseline and the frozen model, apply fail-closed score-once rules to a fresh test, and emit the shown "
+        "machine-readable artifacts — without the repository being reachable. It does **not** establish benchmark "
+        "superiority, production fitness, or flood-mapping skill beyond the checks shown.\n\n"
         "## Optional activity: Predict → Change → Run → Observe → Explain\n\n"
-        "This does not affect the default path; the defaults reproduce the recorded run.\n\n"
+        "This does not affect the default path. **Any change here makes the run exploratory:** Section 8 then does not fetch "
+        "or score the fresh test and records validation and the exposed development test only, with the settings that "
+        "differ.\n\n"
         "1. **Predict:** with `TRAINABLE = 'decoder+last_block'` the last encoder block (27.7 M more parameters) is trained "
-        "too. Will the kept epoch's validation loss be lower than with `'decoder'`, and will the test `verdict` change? Write "
-        "your guess down.\n"
-        "2. **Change** only `TRAINABLE` in Section 6; keep `EPOCHS`, `LEARNING_RATE` and `BATCH_SIZE`.\n"
-        "3. **Run** Sections 6, 7 and 8 in that order. Section 6 first restores the pinned base (it prints `started_from`), so "
-        "this is a fresh experiment rather than continued training, and epoch 0 is still the frozen model. Section 5 need not "
-        "be re-run: its frozen numbers do not depend on `TRAINABLE`.\n"
-        "4. **Observe** `best_epoch`, the validation loss per epoch, the `water_iou`, `precision` and `recall` rows, the "
-        "`verdict` and the figure.\n"
+        "too. Will the kept epoch's validation loss be lower than with `'decoder'`? Write your guess down.\n"
+        "2. **Change** `RUN_GRID = False` and `TRAINABLE` in Section 6; keep `EPOCHS`, `LEARNING_RATE` and `BATCH_SIZE`.\n"
+        "3. **Run** Sections 6, 7, 8 and 9 in that order. Section 6 first restores the pinned base, so this is a fresh "
+        "experiment rather than continued training, and epoch 0 is still the frozen model.\n"
+        "4. **Observe** `best_epoch`, the validation loss per epoch, the exposed-development `water_iou`, `precision` and "
+        "`recall` rows, the Section 8 line *not scored (exploratory)*, and the figure.\n"
         "5. **Explain** whether a larger trainable share helped on 24 chips whose distribution the model has already seen, "
-        "and whether the change is larger than a different draw of 12 test chips could produce.\n\n"
-        "**Scope of a re-run:** every variation here is Sections 6 → 7 → 8; to return to the recorded settings, restore the "
-        "defaults and run the same three sections. Other variations to predict before running: raise `EPOCHS` (does the "
-        "validation loss keep falling?) or set `LEARNING_RATE = 1e-4` (which epoch does validation selection keep, when the "
-        "frozen epoch 0 is a candidate?). For your own chips set `USE_BYOD = True` and run from Section 4 onwards.\n\n"
+        "and why an exploratory run must not look at the fresh test.\n\n"
+        "**Scope of a re-run:** every variation here is Sections 6 → 9; to return to the pre-registered settings, restore the "
+        "defaults and run the same sections (on a T4 a second scoring in the same runtime is labelled a *reproduction*). "
+        "Other variations to predict before running: raise `EPOCHS` (does the validation loss keep falling?) or set "
+        "`LEARNING_RATE = 1e-4` (which epoch does validation selection keep, when the frozen epoch 0 is a candidate?). For "
+        "your own chips set `USE_BYOD = True` and run from Section 4 onwards.\n\n"
         '## Troubleshooting\n\n- **Section 1 stops with "This notebook needs a Linux x86_64 runtime"** — you are on Windows, macOS or an ARM machine. Use Google '
         'Colab, Kaggle or a Linux x86_64 Jupyter server.\n- **The uv wheel fails its size/SHA-256 check, or a download in Section 1 times out** — run Section 1 '
         'again; a complete environment built from the same lock is reused, an incomplete one is finished. If it repeats, the network is blocking or altering '
         '`files.pythonhosted.org` or `pypi.org`.\n- **"The isolated environment\'s Python process exited"** — usually out of memory. Restart the session and '
         'choose **Run all**.\n- **You re-ran Section 1 on its own** — nothing is lost: it keeps the running worker and every variable, so the cells after it '
-        'keep working. After a session restart, run from the top.\n- **Section 3 reports a size or SHA-256 mismatch, or cannot reach the Hub** — the message '
+        'keep working. After a session restart, run from the top.\n- **Environment variables the notebook reads** — `DIMER_ISOLATED_ENV` (Section 1: where the '
+        'isolated environment is built or reused; default `dimer_isolated_env_<lock digest>` in the working directory), `DIMER_NOTEBOOK_CI_PREINSTALLED=1` '
+        '(Section 1: skip building it, for CI images that already have the pins) and `DIMER_MASK_FRESH_TEST=1` (Section 8: do not fetch or score the fresh '
+        'test; the run is exploratory).\n- **Section 3 reports a size or SHA-256 mismatch, or cannot reach the Hub** — the message '
         'names the file. Delete it from the snapshot folder Section 3 prints and run Section 3 again.\n- **Section 3 stops during the pickle audit or '
         'conversion** — the audit refuses any global outside the allow-list and names it; the downloaded checkpoint is not the pinned one. Delete the snapshot '
         'folder and run Section 3 again.\n- **Section 4 reports a size or SHA-256 mismatch for a chip** — the message names the object; a download from '
         '`storage.googleapis.com/sen1floods11` was cut short or altered. Run Section 4 again.\n- **CUDA out of memory in Section 6** — another notebook holds '
-        "the GPU, or `TRAINABLE = 'decoder+last_block'` with a larger `BATCH_SIZE` exceeds a T4. Restart the session, keep `BATCH_SIZE = 2`, and choose **Run all**.\n- "
-        '**Section 5 prints `restored_pinned_base`** — you re-ran it after Section 6; the adapted tensors were put back to the base. Re-run Sections 6–8 in order.\n- '
+        "the GPU. Restart the session, keep `BATCH_SIZE = 2`, and choose **Run all**; a smaller batch makes the run exploratory.\n- "
+        '**Section 6 raises "… does not have a deterministic implementation"** — an operation without a deterministic CUDA kernel was reached; the run stops '
+        'rather than training non-deterministically. Report it with the printed operation name.\n- '
+        '**Section 8 prints "not scored (exploratory)"** — at least one pre-registered setting differs (it lists them: on CPU `device` and `grid`). This is '
+        'expected off a T4.\n- **Section 8 prints "failed before completion; not a look"** — the fresh chips could not be fetched or verified, or a '
+        'pre-scoring check failed; nothing was recorded. Run Section 8 again.\n- '
+        '**Section 5 prints `restored_pinned_base`** — you re-ran it after Section 6; the adapted tensors were put back to the base. Re-run Sections 6–9 in order.\n- '
         '**BYOD: a band, shape or label refusal** — the message names the rule; chips must be six-band 512 × 512 GeoTIFFs in the documented band order (13-band '
         'Sentinel-2 L1C files are reduced automatically) with masks of 0 / 1 / −1, and the dataset needs some water.\n- **BYOD: "bring at least 7 labelled '
         'chips"** — the per-chip split keeps four chips for training, one for validation and two for test; add chips, or give a `split` column.\n- **BYOD: '
@@ -697,8 +858,8 @@ TEMPLATE = {
         'chips; a `split` column needs `train`, `validation` and `test` each at least once.\n- **BYOD: "BYOD_PATH … does not '
         'exist"** — the path is relative to the working directory printed in the message.\n- **BYOD: "the upload dialog exists only in Google Colab"** — on '
         'Kaggle or Jupyter, put the zip (or folder) in the runtime and set `BYOD_PATH` to its path.\n- **BYOD: "Upload exactly one .zip file"** — the dialog was '
-        "cancelled or several files were chosen; run the cell again.\n\n## Glossary\n\n- **Sentinel-2 / Sen1Floods11:** ESA's optical satellites; Sen1Floods11 is a "
-        'dataset of flood-event chips with hand-drawn water labels over eleven events.\n- **Reflectance and the six bands:** the fraction of sunlight reflected '
+        "cancelled or several files were chosen; run the cell again.\n\n## Glossary\n\n- **Sentinel-2 L1C / Sen1Floods11:** ESA's optical satellites; L1C is "
+        'top-of-atmosphere reflectance (not atmospherically corrected); Sen1Floods11 is a dataset of flood-event chips with hand-drawn water labels over eleven events.\n- **Reflectance and the six bands:** the fraction of sunlight reflected '
         'in blue, green, red, narrow NIR, SWIR 1 and SWIR 2; water is dark in NIR and SWIR.\n- **Segmentation mask / ignore class:** one class per pixel; −1 '
         'marks cloud or no-data pixels that are excluded from training and scoring.\n- **No-water baseline:** predicting *land* for every pixel; its accuracy '
         'equals the land fraction and its water IoU is 0.\n- **IoU, precision, recall, F1:** overlap of predicted and true water; the share of predicted water '
@@ -706,20 +867,22 @@ TEMPLATE = {
         'its features; the UPerNet that upsamples them to pixels; the final two-class layer.\n- **Frozen / adapted / pinned base:** the packaged model; the '
         'model after Section 6; the verified packaged weights every adaptation starts from (`restore_pinned_base` in Sections 5 and 6).\n- **BatchNorm statistics:** running means and '
         'variances in the decoder; kept fixed because two-chip batches would corrupt them.\n- **Validation-loss selection:** keeping the epoch with the lowest '
-        'validation loss, with the frozen model as epoch 0.\n- **Pickle audit / safetensors:** the upstream checkpoint is a pickle that could run code when '
+        'validation loss, with the frozen model as epoch 0.\n- **Exposed development test / fresh test:** chips that were already looked at while choosing '
+        'settings, reported for continuity; chips never scored before, read once under settings fixed in advance.\n- **Pre-registration / exploratory / '
+        'reproduction:** fixing the settings, endpoint and reading rule before looking; any run that differs from them; a later run with identical settings.\n- '
+        '**Deterministic training:** the same inputs and seed give bit-identical results; here by flags plus matmul versions of three operations.\n- **Pickle audit / safetensors:** the upstream checkpoint is a pickle that could run code when '
         'loaded; it is statically checked against an allow-list and converted once to safetensors, a format that stores only tensors.\n- **Isolated '
         'environment:** the separate Python environment Section 1 builds from the hash lock; every later cell runs there.\n\n## Conclusion (your notes)\n\nComplete '
-        "these in your own words; the recorded run's values are in the **Check your reasoning** answers above.\n\n- The frozen model's test water IoU was ___ "
-        "against the no-water baseline's ___.\n- Bounded fine-tuning moved it to ___, which I read as ___ because ___.\n- The number I would not trust on its own "
-        'is ___, because ___.\n- Before adapting on my own chips I would check the band order and scaling, split by ___, and compare against ___.\n\n'
+        "these in your own words; the recorded run's values are in the **Check your reasoning** answers above.\n\n- The frozen model's water IoU on the exposed development test was ___ "
+        "against the no-water baseline's ___.\n- The grid selected ___; on the fresh test the change was ___ with interval ___, which the reading rule calls ___.\n- The number I would not trust on its own "
+        'is ___, because ___.\n- Before adapting on my own chips I would check the product level, band order and offset, split by ___, and compare against ___.\n\n'
         "## References\n\n"
-        "- Repository README: https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/README.md\n"
-        "- Repository model card: https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/MODEL_CARD.md\n"
-        "- Weights and conversion notes: https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/docs/WEIGHTS.md\n"
-        "- Hugging Face model repository: https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11 (revision `{MODEL_REVISION}`)\n"
-        "- Szwarcman, D., Roy, S., Fraccaro, P., et al. (2024). Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications. arXiv:2412.02732: https://arxiv.org/abs/2412.02732\n"
-        "- Bonafilia, D., Tellman, B., Anderson, T., Issenberg, E. (2020). Sen1Floods11: A georeferenced dataset to train and test deep learning flood algorithms for Sentinel-1. CVPR Workshops: https://github.com/cloudtostreet/Sen1Floods11\n"
-        "- TerraTorch: https://github.com/IBM/terratorch\n"
-        "- DIMER Notebook Specification 2.2 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)\n"
+        "[1] D. Szwarcman, S. Roy, P. Fraccaro, et al., \"Prithvi-EO-2.0: A versatile multi-temporal foundation model for Earth observation applications,\" arXiv:2412.02732, 2024. https://arxiv.org/abs/2412.02732\n\n"
+        "[2] D. Bonafilia, B. Tellman, T. Anderson, and E. Issenberg, \"Sen1Floods11: A georeferenced dataset to train and test deep learning flood algorithms for Sentinel-1,\" in *Proc. IEEE/CVF CVPR Workshops*, 2020. https://github.com/cloudtostreet/Sen1Floods11\n\n"
+        "[3] IBM, \"TerraTorch,\" GitHub repository. https://github.com/IBM/terratorch\n\n"
+        "[4] IBM and NASA, \"Prithvi-EO-2.0-300M-TL-Sen1Floods11,\" Hugging Face model repository, revision `{MODEL_REVISION}`. https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11\n\n"
+        "[5] European Space Agency, \"Sentinel-2 processing baseline 04.00 (radiometric offset),\" Sentinel Online. https://sentinels.copernicus.eu/web/sentinel/technical-guides/sentinel-2-msi/processing-baseline\n\n"
+        "[6] K. Valcorza, \"prithvi-flood-segmentation-pipeline: README, model card, weights notes and pre-registration,\" GitHub. https://github.com/kurtvalcorza/prithvi-flood-segmentation-pipeline/blob/main/MODEL_CARD.md\n\n"
+        "[7] DIMER Notebook Specification 2.5 and Model Card Specification 1.1 (fleet specs in the ml-worker repository)\n"
     ),
 }
