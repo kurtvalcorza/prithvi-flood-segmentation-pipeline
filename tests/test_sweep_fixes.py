@@ -139,7 +139,7 @@ def test_swp_g_guided_layer_is_present_and_infrastructure_is_collapsed(notebook)
 
 def test_swp_g_checkpoint_answers_quote_the_recorded_run(notebook):
     md = _markdown(notebook)
-    for value in ("0.7301", "0.7458", "0.8049", "0.1306", "0.1178", "0.8614", "0.8748"):
+    for value in ("0.7301", "0.7459", "0.8049", "0.1306", "0.1178", "0.8614", "0.8747"):
         assert value in md, value
 
 

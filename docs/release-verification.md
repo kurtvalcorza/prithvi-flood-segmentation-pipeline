@@ -165,7 +165,7 @@ The grid, the 23-chip fresh test, the determinism settings and the reading rule 
 
 Evidence: `docs/execution-evidence/2026-10-19-9fd2b76/`. The output notebook's 36 cell sources equal blob `f030a974` (checked cell by cell). `run_summary.json` records `input_unchanged: true`, `exec_exit_code: 0`, verdict PASS, 331.7 s session wall, and an `executed_sha256` equal to the committed output notebook's digest.
 
-- **Section 6 (grid on, T4, fp16 autocast, deterministic replacements):** kept validation loss C0 0.117766, C1 0.12619, C2 0.117717 (all at epoch 2). No challenger beat C0 by 0.005 (C2 is lower by 0.000049), so **C0** is selected. `grid_hash` `68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a`.
+- **Section 6 (grid on, T4, fp16 autocast, deterministic replacements):** kept validation loss C0 0.117766, C1 0.12619, C2 0.117717 (all at epoch 2); C0's validation water IoU 0.8614 (frozen) → 0.8747 at the kept epoch (Section 7's re-evaluation prints 0.8748). No challenger beat C0 by 0.005 (C2 is lower by 0.000049), so **C0** is selected. `grid_hash` `68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a`.
 - **Exposed development test (12 chips, scored in every earlier run; decides nothing):** water IoU frozen 0.7301 → adapted 0.7459 (+0.0158); mean IoU 0.8321 → 0.8414.
 - **Section 8 check:** `{'masked': False, 'preregistered': True, 'will_fetch_fresh_test': True, 'settings_differing': []}`.
 - **Fresh test (23 chips, the endpoint):** *pre-registered evaluation (this runtime)*; pooled water IoU frozen 0.8815, selected 0.8816, change 0.0, 95 % CI [−0.0024, 0.0021]; verdict **no detectable change**; `write_errors: []`.

@@ -215,7 +215,7 @@ def test_fl_m2_no_pre_fix_expected_results_remain(notebook):
             assert stale not in text, stale
     assert "ten regions" in md and "precision 0.9251 is above recall 0.776" in md
     record = (ROOT / "docs" / "release-verification.md").read_text(encoding="utf-8")
-    for value in ("0.7301", "0.7458", "0.8049", "0.1306", "0.1178", "0.8614", "0.8748"):  # quoted answers = the record row
+    for value in ("0.7301", "0.7459", "0.8049", "0.1306", "0.1178", "0.8614", "0.8747"):  # quoted answers = the record row
         assert value in md and value in record, value
     regions = {name.split("_")[0] for name, role, *_ in SAMPLE_RECORDS if role == "test"}
     assert len(regions) == 10
@@ -260,7 +260,7 @@ def test_fl_m2_section_8_names_the_provenance_of_each_example_chip(notebook):
 def test_fl_m4_interpretation_and_activity(notebook):
     md = _markdown(notebook)
     closing = md[md.index("## Interpretation and limits") :]
-    assert "recall rose from 0.776 to 0.8002" in closing and "precision fell from 0.9251 to 0.9165" in closing
+    assert "recall rose from 0.776 to 0.8004" in closing and "precision fell from 0.9251 to 0.9164" in closing
     assert "leaves those numbers about" not in closing and "to see the frozen model win every epoch" not in md
     assert "## Optional activity: Predict → Change → Run → Observe → Explain" in md and "**Scope of a re-run:**" in md
     assert "**Run** Sections 6, 7, 8 and 9 in that order" in md
