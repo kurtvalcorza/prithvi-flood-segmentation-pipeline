@@ -161,7 +161,7 @@ def test_grid_partial_grid_is_refused_and_hash_is_stable():
     rows = [{"name": "C0", "val_loss": [0.1306, 0.1178], "best_epoch": 1, "kept_val_loss": 0.1178}]
     assert SC.grid_hash(rows, "C0") == SC.grid_hash(json.loads(json.dumps(rows)), "C0")
     assert SC.grid_hash(rows, "C0") != SC.grid_hash([{**rows[0], "kept_val_loss": 0.117801}], "C0")
-    assert [c["name"] for c in SC.GRID] == ["C0", "C1", "C2"] and SC.SELECTION_MARGIN == 0.005 and SC.RECORDED_SELECTION is None
+    assert [c["name"] for c in SC.GRID] == ["C0", "C1", "C2"] and SC.SELECTION_MARGIN == 0.005 and SC.RECORDED_SELECTION == "C0"
 
 
 # --- R70-D3: reading rule -------------------------------------------------------------------------------------------
@@ -193,6 +193,9 @@ def _env_unmasked(monkeypatch, request):
     round 2). The one test that can touch the real fresh objects keeps the caller's mask."""
     if "fresh_pin_metadata" not in request.node.name:
         monkeypatch.delenv(S.MASK_ENV, raising=False)
+    # These tests exercise the score-once rules as they stand before a record exists (first look = evaluation);
+    # the recorded constants and the reproduction label with the record set are in test_r70_record.py.
+    monkeypatch.setattr(SC, "RECORDED_EVALUATION", None)
 
 
 def _settings(**changes):
@@ -395,7 +398,7 @@ def test_r70_m5_no_local_home_paths_in_committed_files():
     import subprocess
 
     tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True).stdout.split()
-    pattern = re.compile(rb"/home/[a-z][a-z0-9_-]*/|Users[\\/]Kurt|KURTVA~1")
+    pattern = re.compile(rb"/home/[a-z][a-z0-9_-]*/|Users[\\/]Kurt|KURTVA~[0-9]")
     this = Path(__file__).resolve().relative_to(ROOT).as_posix()  # holds the pattern itself
     hits = [p for p in tracked if p != this and (ROOT / p).is_file() and pattern.search((ROOT / p).read_bytes())]
     assert hits == []

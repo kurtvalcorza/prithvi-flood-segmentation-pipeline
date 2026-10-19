@@ -32,11 +32,29 @@ GRID: tuple[dict[str, Any], ...] = (
 )
 DEFAULT_CONFIG = "C0"
 SELECTION_MARGIN = 0.005
-# The hosted record's selection; None until the first hosted T4 run exists, so a CPU run trains C0 (exploratory).
-RECORDED_SELECTION: str | None = None
-# The first hosted pre-registered T4 evaluation (run id, revision); None until it exists. Once set, every scoring of
-# the fresh test - including the first one in a new runtime - is a "reproduction".
-RECORDED_EVALUATION: dict[str, Any] | None = None
+# The selection of the evaluation of record (hosted T4, 2026-10-19): C0, the same as DEFAULT_CONFIG, so a CPU run
+# (grid off, exploratory) trains the recorded system.
+RECORDED_SELECTION: str | None = "C0"
+# The evaluation of record: the first hosted pre-registered T4 scoring of the fresh test (docs/release-verification.md,
+# evidence docs/execution-evidence/2026-10-19-9fd2b76/). Because it is set, every scoring of the fresh test - including
+# the first one in a new runtime - is a "reproduction", compared with it by `compare_with_record`.
+RECORDED_EVALUATION: dict[str, Any] | None = {
+    "date": "2026-10-19",
+    "commit": "9fd2b76dd1480d8a8f822e5fe2d65ac578bba559",
+    "notebook_blob": "f030a974de5b3adbaa017e830b162710f9693a23",
+    "device": "Tesla T4",
+    "executor": "Colab CLI `colab exec -f`, fresh Colab T4 VM",
+    "evidence": "docs/execution-evidence/2026-10-19-9fd2b76/",
+    "test_look": "pre-registered evaluation (this runtime)",
+    "selected_system": "C0",
+    "grid_hash": "68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a",
+    "chips": 23,
+    "frozen_water_iou": 0.8815,
+    "selected_water_iou": 0.8816,
+    "change": 0.0,
+    "ci95": [-0.0024, 0.0021],
+    "verdict": "no detectable change",
+}
 N_BOOT = 10_000
 BOOT_SEED = 0
 PRACTICAL_TOLERANCE = 0.02
@@ -245,6 +263,34 @@ def _next_numbered(score_dir: Path, stem: str, kind: str) -> Path:
     while (score_dir / f"{stem}_fresh_test_{kind}_{n}.json").exists():
         n += 1
     return score_dir / f"{stem}_fresh_test_{kind}_{n}.json"
+
+
+def compare_with_record(result: Mapping[str, Any], grid_hash_value: str, selected: str) -> dict[str, Any] | None:
+    """Compare a completed fresh-test scoring with the evaluation of record, at the record's printed precision (4 dp).
+
+    Returns None when there is no record; otherwise {'record', 'matches_record', 'differs'}, where `differs` names each
+    field that is not equal: selected_system, grid_hash, chips, frozen_water_iou, selected_water_iou, change, ci95,
+    verdict."""
+    if RECORDED_EVALUATION is None:
+        return None
+    rec = RECORDED_EVALUATION
+    boot = result.get("bootstrap") or {}
+    live = {
+        "selected_system": selected,
+        "grid_hash": grid_hash_value,
+        "chips": boot.get("n_chips"),
+        "frozen_water_iou": None if boot.get("frozen_water_iou") is None else round(boot["frozen_water_iou"], 4),
+        "selected_water_iou": None if boot.get("selected_water_iou") is None else round(boot["selected_water_iou"], 4),
+        "change": None if boot.get("delta") is None else round(boot["delta"], 4),
+        "ci95": None if boot.get("ci95") is None else [round(v, 4) for v in boot["ci95"]],
+        "verdict": result.get("verdict"),
+    }
+    differs = [k for k, v in live.items() if v != rec.get(k)]
+    return {
+        "record": f"{rec['date']} hosted {rec['device']}, commit {rec['commit'][:7]}",
+        "matches_record": not differs,
+        "differs": differs,
+    }
 
 
 def write_exploratory(score_dir: str | Path, stem: str, payload: Mapping[str, Any], check: Mapping[str, Any]) -> Path:

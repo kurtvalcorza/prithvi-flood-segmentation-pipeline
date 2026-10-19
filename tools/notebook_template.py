@@ -110,8 +110,8 @@ TEMPLATE = {
             'are **infrastructure** — the isolated environment, the carried package and the audited model snapshot — and their cells are collapsed; you may run '
             'them without studying them. The learning path starts in Section 4. Form fields (`# @param`) are the only values meant to be edited, and the defaults '
             'reproduce the recorded run. Before each principal result the notebook asks you to **Predict**; after it come **What to notice** and a collapsible '
-            '**Check your reasoning** with a worked answer from the recorded run (the Colab CLI T4 run of 8 October 2026 of the previous revision, '
-            '`docs/execution-evidence/2026-10-08-eb79368/`; the fresh test has no recorded number yet). Every adaptation starts from the pinned base, so re-running Section 6 with other settings is a fresh, exploratory experiment. '
+            '**Check your reasoning** with a worked answer from the recorded run (the evaluation of record: the hosted Colab CLI T4 run of 19 October 2026 of commit `9fd2b76`, '
+            '`docs/execution-evidence/2026-10-19-9fd2b76/`). Every adaptation starts from the pinned base, so re-running Section 6 with other settings is a fresh, exploratory experiment. '
             '**Troubleshooting**, a **Glossary** and a **Conclusion** template are at the end. Writing your predictions down is optional.\n\n**Roadmap:** 1–3 '
             'infrastructure → 4 the labelled chips, validation and refusals *(evaluation practice)* → 5 the frozen model against the no-water baseline *(core '
             'concept)* → 6 the pre-registered validation grid of bounded fine-tunings *(core concept)* → 7 the exposed development test *(evaluation practice)* → 8 the '
@@ -508,9 +508,10 @@ TEMPLATE = {
         {
             "md": (
                 '**What to notice:** each config\'s epoch 0 (`note: frozen model`) and validation loss per epoch, the `selection` line, and the `grid_hash`.\n\n<details><summary>Check '
-                'your reasoning</summary>In the recorded run (C0 only, before the grid existed) validation loss went from 0.1306 (frozen) to its minimum 0.1178 at '
-                'epoch 2 and rose again by epoch 4, so epoch 2 was kept (validation water IoU 0.8614 → 0.8748). A challenger must reach 0.1128 or lower to replace C0; the grid\'s own numbers will be '
-                'recorded with the hosted evaluation (`docs/release-verification.md`). Validation selection with the frozen model as a candidate stops drift.</details>'
+                'your reasoning</summary>In the evaluation of record (hosted T4, 19 October 2026) C0\'s validation loss went from 0.1306 (frozen) to its minimum 0.1178 at '
+                'epoch 2 and rose again by epoch 4, so epoch 2 was kept (validation water IoU 0.8614 → 0.8747). A challenger had to reach 0.1128 or lower to replace C0: '
+                'C1 kept 0.1262 and C2 0.1177, only 0.00005 below C0, so C0 was kept and `grid_hash` began `68b0a351`. Two masked T4 runs printed the same hash, '
+                'so under the deterministic settings this table repeats exactly on a T4 (`docs/release-verification.md`). Validation selection with the frozen model as a candidate stops drift.</details>'
             ),
         },
         {
@@ -594,10 +595,11 @@ TEMPLATE = {
         {
             "md": (
                 '**What to notice:** the `water_iou` row (baseline, frozen, adapted), `change_water_iou`, and the validation numbers beside it.\n\n<details><summary>Check '
-                'your reasoning</summary>No. In the recorded run the water IoU on these chips moved from 0.7301 to 0.7458 (F1 0.8440 → 0.8544, accuracy 0.9440 → '
-                '0.9468): recall rose from 0.776 to 0.8002 while precision fell from 0.9251 to 0.9165. These 12 chips were already read when the default '
+                'your reasoning</summary>No. In the evaluation of record the water IoU on these chips moved from 0.7301 to 0.7459 (+0.0158; F1 0.8440 → 0.8544, '
+                'accuracy 0.9440 → 0.9468): recall rose from 0.776 to 0.8004 while precision fell from 0.9251 to 0.9164. These 12 chips were already read when the default '
                 'learning rate was chosen, they come from events in the training split, and there is one seed and no interval; the change shows the contract '
-                'ran and did no harm. The pre-registered fresh test in Section 8 is where a change is read, with an interval and a tolerance.</details>'
+                'ran and did no harm. The pre-registered fresh test in Section 8 is where a change is read, with an interval and a tolerance; in the '
+                'evaluation of record this gain did not show up there.</details>'
             ),
         },
         {
@@ -625,7 +627,8 @@ TEMPLATE = {
                 "`outputs/score_once/{stem}_fresh_test_exploratory_<n>.json` with the settings that differ. The first completed "
                 "scoring in a runtime is labelled *pre-registered evaluation (this runtime)*; a repeat is a *reproduction* "
                 "(`_reproduction_<n>`). A runtime cannot know about other runtimes: the evaluation of record is the first hosted "
-                "T4 run listed in `docs/release-verification.md`, and once it is recorded every run is a reproduction. A failed "
+                "T4 run listed in `docs/release-verification.md`. It is recorded (19 October 2026), so every scoring here is a "
+                "*reproduction*, and the cell prints `matches_record` with the fields that differ from it. A failed "
                 "fetch, decode or check is not a look; once scoring completes it is a look, even if a later write fails. A look "
                 "marker is kept beside the fresh-test cache (`weights/sen1floods11_fresh/score_once_look_marker.json`), so "
                 "deleting `outputs/` or `outputs/score_once/` does **not** reset the look; the report and the ledger are "
@@ -685,6 +688,9 @@ TEMPLATE = {
                 "elif 'bootstrap' in fresh_result:\n"
                 "    boot = fresh_result['bootstrap']\n"
                 "    print({{'test_look': fresh_result['test_look'], 'chips': boot['n_chips'], 'frozen_water_iou': round(boot['frozen_water_iou'], 4), 'selected_water_iou': round(boot['selected_water_iou'], 4), 'change': round(boot['delta'], 4), 'ci95': [round(v, 4) for v in boot['ci95']], 'verdict': fresh_result['verdict'], 'report': fresh_result['file'], 'write_errors': fresh_result.get('write_errors', [])}})\n"
+                "    comparison_to_record = compare_with_record(fresh_result, GRID_HASH, selected_name)  # None without a record\n"
+                "    if comparison_to_record is not None:\n"
+                "        print({{'reproduction_of': comparison_to_record['record'], 'matches_record': comparison_to_record['matches_record'], 'differs': comparison_to_record['differs']}})\n"
                 "else:\n"
                 "    print(fresh_result)"
             ),
@@ -693,8 +699,12 @@ TEMPLATE = {
             "md": (
                 '**What to notice:** `test_look` (or why the fresh test was not scored and which settings differ), the `change` with its `ci95`, and the `verdict`.\n\n<details><summary>Check '
                 'your reasoning</summary>Probably not. On 23 within-event chips a fine-tuning effect of the size seen on the exposed development test (about 0.015) is '
-                'below the 0.02 tolerance, so the pre-registered reading is *no detectable change* unless the interval is narrow and the change large. No hosted '
-                'number is recorded for this revision yet; `docs/release-verification.md` lists the evaluation of record and its reproductions once they exist. On '
+                'below the 0.02 tolerance, so the pre-registered reading is *no detectable change* unless the interval is narrow and the change large. The '
+                'evaluation of record (hosted T4, 19 October 2026, commit `9fd2b76`) read exactly that: frozen 0.8815, selected C0 0.8816, change 0.0, '
+                '95 % interval [−0.0024, 0.0021], *no detectable change*. The +0.0158 on the exposed development test did not show up on the 23 fresh '
+                'chips: the frozen model is already strong on these in-distribution events (0.88), and 12 already-read chips overstated the gain. '
+                'Your T4 run with the defaults is a *reproduction*; `matches_record: True` means the deterministic settings reproduced it, and `differs` '
+                'names any field that did not. `docs/release-verification.md` lists the record and its reproductions. On '
                 'CPU the cell reports *not scored (exploratory)* and names the settings that differ (`grid`, `precision`, `device`; and '
                 '`masked` when `DIMER_MASK_FRESH_TEST=1` is set).</details>'
             ),
@@ -790,12 +800,14 @@ TEMPLATE = {
         "**On the exposed development test**, 12 chips from the official test split, the packaged flood model finds water "
         "with an IoU near 0.73 (F1 0.84 in the recorded run) against a no-water baseline that scores 0, and its precision "
         "(0.93) is well above its recall (0.78): it misses some water rather than inventing it. The selected fine-tuning "
-        "moved that IoU from 0.7301 to 0.7458 in the recorded run: recall rose from 0.776 to 0.8002 while precision "
-        "fell from 0.9251 to 0.9165. Those chips are held out only "
+        "moved that IoU from 0.7301 to 0.7459 in the evaluation of record: recall rose from 0.776 to 0.8004 while precision "
+        "fell from 0.9251 to 0.9164. Those chips are held out only "
         "at chip level and were read when the defaults were chosen, so they describe, they do not decide. **The fresh test** "
         "(Section 8) is the one pre-registered reading: 23 unseen chips from the same 8 events, a paired bootstrap interval "
         "and a 0.02 tolerance, scored only on a T4 under the pre-registered settings; it measures within-event "
-        "generalisation, not new events, and its power is low. **If you ran your own chips (BYOD),** the run is exploratory, "
+        "generalisation, not new events, and its power is low. In the evaluation of record (hosted T4, 19 October 2026) it read "
+        "*no detectable change* (frozen 0.8815, selected 0.8816, 95 % interval [−0.0024, 0.0021]): the exposed-test gain did not "
+        "show up on fresh chips. **If you ran your own chips (BYOD),** the run is exploratory, "
         "the numbers describe your chips under the split printed as `split_rule` in Section 4, and the frozen numbers are "
         "the packaged model's. That is the claim: the adaptation contract runs end to end on real labelled multispectral "
         "chips with deterministic training, the pickle is audited and converted rather than served, and the 60 MB artifact "

@@ -26,6 +26,12 @@ STEM = "prithvi_flood_segmentation"
 CHECKS = {"grid_complete_and_matching": True, "model_is_selected_system": True, "fresh_pool_digest": True}
 
 
+@pytest.fixture(autouse=True)
+def _no_record(monkeypatch):
+    """The score-once rules as they stand before a record exists; test_r70_record.py covers the recorded case."""
+    monkeypatch.setattr(SC, "RECORDED_EVALUATION", None)
+
+
 @pytest.fixture(scope="module")
 def notebook() -> dict:
     return json.loads(NOTEBOOK.read_text(encoding="utf-8"))
