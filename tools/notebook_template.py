@@ -626,15 +626,21 @@ TEMPLATE = {
                 "scoring in a runtime is labelled *pre-registered evaluation (this runtime)*; a repeat is a *reproduction* "
                 "(`_reproduction_<n>`). A runtime cannot know about other runtimes: the evaluation of record is the first hosted "
                 "T4 run listed in `docs/release-verification.md`, and once it is recorded every run is a reproduction. A failed "
-                "fetch, decode or check is not a look; the report and the ledger are written atomically.\n\n"
+                "fetch, decode or check is not a look; once scoring completes it is a look, even if a later write fails. A look "
+                "marker is kept beside the fresh-test cache (`weights/sen1floods11_fresh/score_once_look_marker.json`), so "
+                "deleting `outputs/` or `outputs/score_once/` does **not** reset the look; the report and the ledger are "
+                "written atomically. The cell prints `masked`, `preregistered` and `will_fetch_fresh_test` before anything is "
+                "fetched, and `DIMER_MASK_FRESH_TEST` is re-read where the fresh test would be fetched and scored, so setting it "
+                "in any cell before Section 8 masks the run.\n\n"
                 "**Predict before running:** will the interval exclude 0?"
             ),
             "code": (
-                "MASKED = os.environ.get(MASK_ENV) == '1'\n"
+                "MASKED = os.environ.get(MASK_ENV) == '1'  # re-read here; score_fresh_test and fetch_fresh_test re-read it again\n"
                 "device_name = torch.cuda.get_device_name(0) if pipe.device.startswith('cuda') else 'cpu'\n"
                 "run_settings = {{\n"
                 "    'data_source': data_source,\n"
                 "    'splits': {{'train': len(train_records), 'validation': len(val_records), 'exposed_development_test': len(test_records), 'fresh_test': len(FRESH_TEST_RECORDS)}},\n"
+                "    'dataset_digest': dataset_manifest({{'train': train_records, 'validation': val_records, 'test': test_records}})['digest'],  # recomputed from the live records\n"
                 "    'fresh_pool_digest': fresh_pool_digest(),\n"
                 "    'epochs': adapt_result['epochs'],\n"
                 "    'batch_size': adapt_result['batch_size'],\n"
@@ -668,15 +674,17 @@ TEMPLATE = {
                 "    selected = chip_confusions(pipe, fresh_records)\n"
                 "    return {{'chips': [r['source_id'] for r in fresh_records], 'frozen': frozen, 'selected': selected}}\n\n"
                 "exploratory_payload = {{'validation_water_iou': {{'frozen': frozen_val['model']['iou']['water'], 'adapted': adapted_val['model']['iou']['water']}}, 'exposed_development_test': comparison, 'grid': grid_rows, 'selection': selection, 'grid_hash': GRID_HASH, 'determinism': run_settings['determinism'], 'device': device_name}}\n"
+                "pre_check = preregistration_check(run_settings)\n"
+                "print({{'masked': MASKED, 'preregistered': pre_check['preregistered'], 'will_fetch_fresh_test': pre_check['preregistered'] and all(checks.values()), 'settings_differing': pre_check['settings_differing']}})  # before any fetch\n"
                 "try:\n"
-                "    fresh_result = score_fresh_test(settings=run_settings, checks=checks, score=score_fresh, score_dir='outputs/score_once', stem='{stem}', exploratory_payload=exploratory_payload)\n"
-                "except Exception as exc:  # a failed fetch, decode or check: nothing recorded, not a look; the rest of the notebook still runs\n"
-                "    fresh_result = {{'test_look': 'not scored (failed before completion; not a look)', 'error': str(exc)[:200]}}\n"
+                "    fresh_result = score_fresh_test(settings=run_settings, checks=checks, score=score_fresh, score_dir='outputs/score_once', stem='{stem}', exploratory_payload=exploratory_payload, marker=LOOK_MARKER)\n"
+                "except Exception as exc:  # a failed fetch, decode or check BEFORE scoring completed: not a look; the rest of the notebook still runs\n"
+                "    fresh_result = {{'test_look': 'not scored (failed before scoring completed; not a look)', 'error': str(exc)[:200]}}\n"
                 "if fresh_result['test_look'] == LABEL_EXPLORATORY:\n"
                 "    print({{'fresh_test': 'not scored (exploratory)', 'masked': MASKED, 'settings_differing': fresh_result['settings_differing'], 'record': fresh_result['file']}})\n"
                 "elif 'bootstrap' in fresh_result:\n"
                 "    boot = fresh_result['bootstrap']\n"
-                "    print({{'test_look': fresh_result['test_look'], 'chips': boot['n_chips'], 'frozen_water_iou': round(boot['frozen_water_iou'], 4), 'selected_water_iou': round(boot['selected_water_iou'], 4), 'change': round(boot['delta'], 4), 'ci95': [round(v, 4) for v in boot['ci95']], 'verdict': fresh_result['verdict'], 'report': fresh_result['file']}})\n"
+                "    print({{'test_look': fresh_result['test_look'], 'chips': boot['n_chips'], 'frozen_water_iou': round(boot['frozen_water_iou'], 4), 'selected_water_iou': round(boot['selected_water_iou'], 4), 'change': round(boot['delta'], 4), 'ci95': [round(v, 4) for v in boot['ci95']], 'verdict': fresh_result['verdict'], 'report': fresh_result['file'], 'write_errors': fresh_result.get('write_errors', [])}})\n"
                 "else:\n"
                 "    print(fresh_result)"
             ),
@@ -687,7 +695,8 @@ TEMPLATE = {
                 'your reasoning</summary>Probably not. On 23 within-event chips a fine-tuning effect of the size seen on the exposed development test (about 0.015) is '
                 'below the 0.02 tolerance, so the pre-registered reading is *no detectable change* unless the interval is narrow and the change large. No hosted '
                 'number is recorded for this revision yet; `docs/release-verification.md` lists the evaluation of record and its reproductions once they exist. On '
-                'CPU the cell reports *not scored (exploratory)* and names the settings that differ (`device`, `grid`).</details>'
+                'CPU the cell reports *not scored (exploratory)* and names the settings that differ (`grid`, `precision`, `device`; and '
+                '`masked` when `DIMER_MASK_FRESH_TEST=1` is set).</details>'
             ),
         },
         {

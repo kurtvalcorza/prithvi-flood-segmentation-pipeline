@@ -46,7 +46,8 @@ NOTEBOOK_KINDS = ("TUTORIAL", "DEMO", "WORKSHOP", "CAPSTONE")  # NOTEBOOK_SPEC 2
 # NOTEBOOK_SPEC 2.5 §3.6.5 (DOC17-DOC21): the canonical use notice, after the title and before the first code cell.
 USE_NOTICE = (
     "> **⚠️ Notice.** For research, training and evaluation only. Not validated for production,\n"
-    "> clinical, diagnostic or safety-critical use. Running this notebook downloads third-party\n"
+    "> operational flood mapping, disaster-response decisions or other safety-critical use.\n"
+    "> Running this notebook downloads third-party\n"
     "> model weights and datasets under their own licenses (see the model card) and uses compute\n"
     "> on your own Colab or Kaggle account. Data you bring stays in your runtime, and you are\n"
     "> responsible for having the right to use it. Results here are tutorial evidence, not\n"
@@ -316,6 +317,10 @@ while True:
     _count += 1
     filename = f"<isolated cell {_count}>"
     source = message[1]
+    # The kernel's DIMER_MASK_FRESH_TEST, re-read for every cell: a mask set in the kernel after this worker started
+    # reaches it. Fail-closed: it can only switch the mask on, never off (a mask set inside the worker stays).
+    if len(message) > 2 and message[2] == "1":
+        os.environ["DIMER_MASK_FRESH_TEST"] = "1"
     linecache.cache[filename] = (len(source), None, source.splitlines(True), filename)
     try:
         signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -376,7 +381,7 @@ class IsolatedRuntime:
 
     def run(self, source):
         try:
-            self._send.send(("run", source))
+            self._send.send(("run", source, os.environ.get("DIMER_MASK_FRESH_TEST")))
         except OSError:
             raise self._exited() from None
         while True:

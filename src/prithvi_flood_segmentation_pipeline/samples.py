@@ -27,6 +27,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import urllib.request
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -577,6 +578,14 @@ FRESH_TEST_RECORDS: tuple[tuple[str, int, str, int, str], ...] = (
 FRESH_TEST_EVENTS = ("India", "Mekong", "Pakistan", "Paraguay", "Somalia", "Spain", "Sri-Lanka", "USA")
 FRESH_TEST_EXCLUDED = ("India_900498", "Spain_7370579")  # upstream example chips the notebook predicts and shows
 FRESH_POOL_DIGEST = "b7706fad689c52b3b848e2bed19da276d59d00cc187f693a0ce249f229ef4815"
+# Set to "1" to mask the fresh test: it is then never fetched or scored. Read from os.environ at every call, never
+# from a flag a caller passes, so a mask set after a worker started (or a stale settings dict) still holds.
+MASK_ENV = "DIMER_MASK_FRESH_TEST"
+
+
+def fresh_test_masked() -> bool:
+    """True when `DIMER_MASK_FRESH_TEST=1` is set in this process's environment right now."""
+    return os.environ.get(MASK_ENV) == "1"
 FRESH_TEST_BYTES = 53_017_076
 
 
@@ -667,6 +676,8 @@ def fetch_fresh_test(*, cache_dir: str | Path | None = None, fetcher: Any = None
     digest mismatch. Call it only where the fresh test may be scored (the notebook's fresh-test section)."""
     import tempfile
 
+    if fresh_test_masked():
+        raise RuntimeError(f"{MASK_ENV}=1: the fresh test is masked and is not fetched; this is not a look")
     if fresh_pool_digest() != FRESH_POOL_DIGEST:
         raise ValueError("FRESH_TEST_RECORDS do not match the pre-registered fresh-pool digest")
     records = []
@@ -693,6 +704,8 @@ def fetch_fresh_test(*, cache_dir: str | Path | None = None, fetcher: Any = None
 def fresh_test_metadata(*, cache_dir: str | Path | None = None, fetcher: Any = None) -> list[dict[str, Any]]:
     """Resolve and parse every pinned fresh chip WITHOUT scoring: fetch (size + digest verified) and read the TIFF
     headers only (shape, dtype); no pixel is decoded and no model is touched."""
+    if fresh_test_masked():
+        raise RuntimeError(f"{MASK_ENV}=1: the fresh test is masked and is not fetched")
     import tifffile
 
     out = []

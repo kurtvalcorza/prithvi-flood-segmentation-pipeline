@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .pipeline import DETERMINISM_FLAGS, atomic_write_json
-from .samples import FRESH_POOL_DIGEST, SAMPLE_LABEL_SOURCE
+from .samples import FRESH_POOL_DIGEST, MASK_ENV, SAMPLE_LABEL_SOURCE, fresh_test_masked  # noqa: F401 (MASK_ENV re-exported)
 
 GRID: tuple[dict[str, Any], ...] = (
     {"name": "C0", "lr": 1e-5, "trainable": "decoder"},
@@ -41,14 +41,22 @@ N_BOOT = 10_000
 BOOT_SEED = 0
 PRACTICAL_TOLERANCE = 0.02
 REQUIRED_DEVICE = "Tesla T4"
-MASK_ENV = "DIMER_MASK_FRESH_TEST"
 LABEL_EVALUATION = "pre-registered evaluation (this runtime)"
 LABEL_REPRODUCTION = "reproduction"
 LABEL_EXPLORATORY = "not scored (exploratory)"
+# The pinned sample's dataset_manifest digest over {'train', 'validation', 'test'} (pre-registration §2 "digests as
+# pinned": it follows from the SAMPLE_RECORDS pins and the fixed decoding).
+SAMPLE_DATASET_DIGEST = "76b95fb0ce2c60b569ee143674672240a62a5e29cc6b2c603b8e9cf1faa27452"
+# The notebook's look marker (`marker=LOOK_MARKER`): beside the fresh-test cache, OUTSIDE outputs/, so deleting
+# outputs/ never resets a look.
+LOOK_MARKER = Path("weights") / "sen1floods11_fresh" / "score_once_look_marker.json"
 
 PREREGISTERED: dict[str, Any] = {
     "data_source": SAMPLE_LABEL_SOURCE,
     "splits": {"train": 24, "validation": 8, "exposed_development_test": 12, "fresh_test": 23},
+    # dataset_manifest(train, validation, exposed test)['digest'] of the pinned sample as decoded: the same counts
+    # with a swapped, duplicated or edited chip give another digest.
+    "dataset_digest": SAMPLE_DATASET_DIGEST,
     "fresh_pool_digest": FRESH_POOL_DIGEST,
     "epochs": 4,
     "batch_size": 2,
@@ -214,13 +222,17 @@ def read_ledger(score_dir: str | Path, stem: str) -> tuple[list[dict[str, Any]] 
     return entries, "ok"
 
 
-def look_label(score_dir: str | Path, stem: str) -> dict[str, Any]:
+def look_label(score_dir: str | Path, stem: str, marker: str | Path | None = None) -> dict[str, Any]:
     """The label the next completed fresh-test scoring gets. Fail-closed: anything that could mean an earlier look
-    (a ledger entry, a report file, an unreadable ledger, a recorded hosted evaluation) makes it a reproduction."""
+    (a ledger entry, a report file, an unreadable ledger, the look marker outside outputs/, a recorded hosted
+    evaluation) makes it a reproduction."""
     entries, state = read_ledger(score_dir, stem)
     report_exists = _paths(Path(score_dir), stem)["report"].exists()
     if RECORDED_EVALUATION is not None:
         return {"test_look": LABEL_REPRODUCTION, "why": "a hosted evaluation of record exists (RECORDED_EVALUATION)"}
+    if marker is not None and (Path(marker).exists() or Path(marker).is_symlink()):
+        why = f"an earlier look in this runtime (look marker {Path(marker).as_posix()})"
+        return {"test_look": LABEL_REPRODUCTION, "why": why}
     if state == "unreadable":
         return {"test_look": LABEL_REPRODUCTION, "why": "the ledger is unreadable; never promoted to the evaluation"}
     if entries or report_exists:
@@ -252,15 +264,21 @@ def score_fresh_test(
     score_dir: str | Path,
     stem: str,
     exploratory_payload: Mapping[str, Any] | None = None,
+    marker: str | Path | None = None,
 ) -> dict[str, Any]:
     """Score the fresh test once per call, only when every pre-registered setting matches and every check passed.
 
     `checks`: named booleans re-checked just before scoring (grid complete and matching, model state = selected
     system, fresh-pool digest). `score()` returns {'chips', 'frozen', 'selected'} (per-chip confusions); it fetches and
-    decodes the fresh chips, so a failure there raises before anything is written (not a look). The report is
-    written first, then the ledger, each atomically."""
+    decodes the fresh chips, so a failure there raises before anything is written (not a look).
+
+    The mask is re-read from THIS process's environment (`DIMER_MASK_FRESH_TEST`), whatever `settings['masked']`
+    says. The label is fixed before scoring. Once scoring has completed it is a look: the look marker (outside
+    outputs/), the report and the ledger are then written in that order, each atomically, and a failed write is
+    returned in `write_errors` instead of raised, so a completed look is never reported as "not a look"."""
     root = Path(score_dir)
     root.mkdir(parents=True, exist_ok=True)
+    settings = {**settings, "masked": bool(settings.get("masked")) or fresh_test_masked()}
     check = preregistration_check(settings)
     failed = sorted(k for k, ok in checks.items() if not ok)
     if not check["preregistered"]:
@@ -268,10 +286,10 @@ def score_fresh_test(
         return {"test_look": LABEL_EXPLORATORY, "settings_differing": check["settings_differing"], "file": str(path)}
     if failed:
         raise RuntimeError(f"fresh test not scored: pre-scoring checks failed {failed}; this is not a look")
+    label = look_label(root, stem, marker)  # decided before scoring, from the state before this look
     scored = score()
     boot = paired_bootstrap(scored["frozen"], scored["selected"])
     verdict = reading_rule(boot["delta"], boot["ci95"])
-    label = look_label(root, stem)
     paths = _paths(root, stem)
     target = paths["report"] if label["test_look"] == LABEL_EVALUATION else _next_numbered(root, stem, "reproduction")
     report = {
@@ -291,10 +309,27 @@ def score_fresh_test(
         "recorded_evaluation": RECORDED_EVALUATION,
         "see": "docs/release-verification.md for the evaluation of record and its reproductions",
     }
-    atomic_write_json(target, report)
-    entries, state = read_ledger(root, stem)
-    if state == "unreadable":  # keep the evidence; the new ledger starts from this look
-        paths["ledger"].replace(_next_numbered(root, stem, "ledger_unreadable"))
-    entry = {"test_look": label["test_look"], "file": target.name, "delta": boot["delta"], "verdict": verdict}
-    atomic_write_json(paths["ledger"], [*(entries or []), entry])
-    return {**report, "file": str(target)}
+    write_errors: list[str] = []
+    if marker is not None:
+        try:  # first: the look survives a deleted outputs/ and a failed report or ledger write
+            marker_path = Path(marker)
+            marker_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(marker_path, {"stem": stem, "test_look": label["test_look"], "report": target.name})
+        except OSError as exc:
+            write_errors.append(f"look marker: {type(exc).__name__}: {exc}"[:200])
+    try:
+        atomic_write_json(target, report)
+    except OSError as exc:
+        write_errors.append(f"report: {type(exc).__name__}: {exc}"[:200])
+    try:
+        entries, state = read_ledger(root, stem)
+        if state == "unreadable":  # keep the evidence; the new ledger starts from this look
+            paths["ledger"].replace(_next_numbered(root, stem, "ledger_unreadable"))
+        entry = {"test_look": label["test_look"], "file": target.name, "delta": boot["delta"], "verdict": verdict}
+        atomic_write_json(paths["ledger"], [*(entries or []), entry])
+    except OSError as exc:
+        write_errors.append(f"ledger: {type(exc).__name__}: {exc}"[:200])
+    out = {**report, "file": str(target)}
+    if write_errors:
+        out["write_errors"] = write_errors
+    return out

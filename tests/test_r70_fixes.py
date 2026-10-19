@@ -187,6 +187,14 @@ def test_paired_bootstrap_uses_unrounded_counts_and_a_fixed_seed():
 # --- R70-M3: fail-closed score-once wiring --------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _env_unmasked(monkeypatch, request):
+    """The score-once tests score stand-ins only; score_fresh_test now re-reads DIMER_MASK_FRESH_TEST itself (F1,
+    round 2). The one test that can touch the real fresh objects keeps the caller's mask."""
+    if "fresh_pin_metadata" not in request.node.name:
+        monkeypatch.delenv(SC.MASK_ENV, raising=False)
+
+
 def _settings(**changes):
     return {**SC.PREREGISTERED, "device": "Tesla T4", **changes}
 
