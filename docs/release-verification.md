@@ -159,7 +159,41 @@ The grid, the 23-chip fresh test, the determinism settings and the reading rule 
 
 | Date (UTC) | Commit / notebook blob | Executor | test_look | grid_hash | Fresh-test change (95 % CI) | Verdict |
 |---|---|---|---|---|---|---|
-| — | — | — | (no hosted run yet) | — | — | — |
+| 2026-10-19 | `9fd2b76` / `f030a974` | Colab CLI `colab exec -f`, fresh Colab Tesla T4 VM (session `suite-prithvi-9fd2b76-14ae`), account 1 | pre-registered evaluation (this runtime): **the evaluation of record** | `68b0a351…9651a` | 0.0 (−0.0024, +0.0021); frozen 0.8815, selected (C0) 0.8816, 23 chips | no detectable change |
+
+### Evaluation of record, 2026-10-19 (`9fd2b76` / `f030a974`)
+
+Evidence: `docs/execution-evidence/2026-10-19-9fd2b76/`. The output notebook's 36 cell sources equal blob `f030a974` (checked cell by cell). `run_summary.json` records `input_unchanged: true`, `exec_exit_code: 0`, verdict PASS, 331.7 s session wall, and an `executed_sha256` equal to the committed output notebook's digest.
+
+- **Section 6 (grid on, T4, fp16 autocast, deterministic replacements):** kept validation loss C0 0.117766, C1 0.12619, C2 0.117717 (all at epoch 2). No challenger beat C0 by 0.005 (C2 is lower by 0.000049), so **C0** is selected. `grid_hash` `68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a`.
+- **Exposed development test (12 chips, scored in every earlier run; decides nothing):** water IoU frozen 0.7301 → adapted 0.7459 (+0.0158); mean IoU 0.8321 → 0.8414.
+- **Section 8 check:** `{'masked': False, 'preregistered': True, 'will_fetch_fresh_test': True, 'settings_differing': []}`.
+- **Fresh test (23 chips, the endpoint):** *pre-registered evaluation (this runtime)*; pooled water IoU frozen 0.8815, selected 0.8816, change 0.0, 95 % CI [−0.0024, 0.0021]; verdict **no detectable change**; `write_errors: []`.
+- **Reload parity:** `metrics_identical: True`, `max_abs_score_diff: 0.0`.
+- **Report file gap:** the notebook wrote `outputs/score_once/prithvi_flood_segmentation_fresh_test_report.json` on the Colab VM, which was then released; the suite did not save it. `prithvi_flood_segmentation_fresh_test_report.transcribed.json` holds every printed field and names what was not printed (per-chip rows, the full bootstrap block, settings).
+
+**Masked determinism check** (throwaway branch `fix/prithvi-flood-tutorial-review-2026-10-17-maskcheck`, `4e29bc1` / `a7322970`; never merged). `4e29bc1` adds one cell to the `9fd2b76` notebook that sets `DIMER_MASK_FRESH_TEST=1`. Both completed runs (account 2) printed `{'masked': True, 'preregistered': False, 'will_fetch_fresh_test': False, 'settings_differing': ['masked']}` and *not scored (exploratory)*. They printed the same `grid_hash` (`68b0a351…9651a`) and selection (C0) as each other and as the evaluation of record. Their suite logs differ only in timestamps, the VM name, `setup_seconds`, the worker pid, the checkpoint-conversion and adaptation seconds, and the temporary figure file name; every grid row, loss and metric line is identical.
+
+| Run | Started (UTC) | Outcome | Evidence |
+|---|---|---|---|
+| 70m1 | 2026-10-19 21:34 | PASS, masked, `grid_hash` `68b0a351…9651a`, C0 | `masked-4e29bc1-run1/suite.log` (70m3 reused its run directory, so the suite log is the record) |
+| 70m2 | 2026-10-19 21:41 | infrastructure failure (`RuntimeError: Connection was lost.`) before any cell ran; **not a look** and not a determinism result | `masked-4e29bc1-run2-infrastructure-failure/suite.log` |
+| 70m3 | 2026-10-19 22:01 | PASS, masked, `grid_hash` `68b0a351…9651a`, C0 | `masked-4e29bc1-run3/` (suite log, `run_summary.json`, `exec.log`) |
+
+**Redaction (2026-10-20).** Local paths were replaced before the first commit: the run directory by `<local-run-dir>`, and the Colab CLI tool directory in the 70m2 traceback by `<local-tool-dir>`. The temporary figure names (`/tmp/tmp….png`) were kept. SHA-256 as captured and as committed:
+
+| File | Captured | Committed | Replacements |
+|---|---|---|---|
+| `exec.log` | `729d0bc0c43613ed31dda13a9d7b46cd44c2e9aa8bdf865e96532a0bddfda40a` | `32bbc0693888227563cead836df2e4ac58e3811328f4262e477b46efc73d6570` | 2 |
+| `run_summary.json` | `a67294f60acc2e62d35bd27c474dfe1b91d1aeeba5a1b85367c7c0bdea411b41` | unchanged | 0 |
+| `prithvi_flood_segmentation_colab_9fd2b76_colab-cli-t4_output.ipynb` | `87a6ece78892e3580c8cde78e8c1f410fa6ab2f6aa3405fcb7c866620a63a374` | unchanged | 0 |
+| `masked-4e29bc1-run1/suite.log` | `eeae845d032af9f4eb720e0a53419f74062fb9f27732f6884b8a94a668657e91` | `202bb7e9dc9fe5af1e1cfce82900e4fda73c0c53b872b7e25aa51e752b78a6be` | 4 |
+| `masked-4e29bc1-run2-infrastructure-failure/suite.log` | `4bd09a09c609ce470890a01e4d25ff084ac7870d699a0e169852733bcd6be309` | `3ac4f7567cbdef046175e9ff5b6a4b0a6483b70d9d79ef0b02d6d1dab9d0e2d0` | 8 |
+| `masked-4e29bc1-run3/suite.log` | `0bf503ae11c03c7355d217026a615fb0a0be13e58db4de87f885c8a46d958499` | `3bcfca8dc2a49e0bafbce53c0b859e6f1d75754467908a59332fa26e84cef051` | 4 |
+| `masked-4e29bc1-run3/run_summary.json` | `c61d8ea62d7105eafa51753bca63d1d891fe0c49de0a7ed664bf063a6908b8af` | unchanged | 0 |
+| `masked-4e29bc1-run3/exec.log` | `83a7624f8017e3798032663ad361a3e200e25089babcc46f2ff63d90e50e856f` | `31ae1b1e91785ad57e6a9c7e2b7aee90d908147813c5418dad70c2ab748e4b82` | 2 |
+
+The 70m3 output notebook (`d2855858ec72b1cc5218e6e208102e55d072d054724747f75586e42a91422e9b`, sources equal to blob `a7322970`) is not committed; its outputs are in its suite log and `exec.log`.
 
 ## Current status
 

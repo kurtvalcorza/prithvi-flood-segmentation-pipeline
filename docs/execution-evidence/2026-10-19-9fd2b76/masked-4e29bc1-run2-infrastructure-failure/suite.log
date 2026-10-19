@@ -1,0 +1,73 @@
+[colab-suite 21:41:13] prithvi-flood-segmentation-pipeline@4e29bc1 tutorials/prithvi_flood_segmentation_colab.ipynb: blob a73229709409c6691f3379a5e423ae5d0136a222
+[colab-suite 21:41:13] $ colab sessions
+[colab-suite 21:41:15] $ colab new -s suite-prithvi-4e29bc1-14ae --gpu T4
+[colab] Creating session 'suite-prithvi-4e29bc1-14ae'...
+[colab] Session READY.
+[colab-suite 21:41:19] $ colab status -s suite-prithvi-4e29bc1-14ae
+[suite-prithvi-4e29bc1-14ae] gpu-t4-s-kkb-ass1c0-116jw5vvv7fm | Hardware: T4 | Shape: Standard | Variant: GPU | Status: IDLE
+[colab-suite 21:41:21] $ colab exec -s suite-prithvi-4e29bc1-14ae -f <local-run-dir>/prithvi_flood_segmentation_colab_4e29bc1_colab-cli-t4.ipynb --timeout 3600.0
+[colab] Parsing notebook '<local-run-dir>/prithvi_flood_segmentation_colab_4e29bc1_colab-cli-t4.ipynb'...
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ <local-tool-dir>/lib/python3.12/site-packag │
+│ es/colab_cli/commands/execution.py:227 in exec_command                       │
+│                                                                              │
+│   224 │   │   │   )                                                          │
+│   225 │   │   │   state.prune_session(name)                                  │
+│   226 │   │   │   raise typer.Exit(1)                                        │
+│ ❱ 227 │   │   raise e                                                        │
+│   228 │                                                                      │
+│   229 │   try:                                                               │
+│   230 │   │   is_nb = file and file.endswith(".ipynb")                       │
+│                                                                              │
+│ <local-tool-dir>/lib/python3.12/site-packag │
+│ es/colab_cli/commands/execution.py:217 in exec_command                       │
+│                                                                              │
+│   214 │   )                                                                  │
+│   215 │   try:                                                               │
+│   216 │   │   # Ensure we are in /content which is the standard Colab        │
+│       working directory                                                      │
+│ ❱ 217 │   │   runtime.execute_code(                                          │
+│   218 │   │   │   "import os; os.makedirs('/content', exist_ok=True);        │
+│       os.chdir('/content')"                                                  │
+│   219 │   │   )                                                              │
+│   220 │   except Exception as e:                                             │
+│                                                                              │
+│ <local-tool-dir>/lib/python3.12/site-packag │
+│ es/colab_cli/runtime.py:243 in execute_code                                  │
+│                                                                              │
+│   240 │   │   │   # execute_interactive returns the raw reply message        │
+│   241 │   │   │   reply_content = reply["content"] if reply else {"status":  │
+│       "error"}                                                               │
+│   242 │   │   else:                                                          │
+│ ❱ 243 │   │   │   reply = self.kernel_client.execute(code, **kwargs)         │
+│   244 │   │   │   if not reply:                                              │
+│   245 │   │   │   │   return []                                              │
+│   246 │   │   │   outputs = reply.get("outputs", [])                         │
+│                                                                              │
+│ <local-tool-dir>/lib/python3.12/site-packag │
+│ es/jupyter_kernel_client/client.py:287 in execute                            │
+│                                                                              │
+│   284 │   │   """                                                            │
+│   285 │   │   outputs = []                                                   │
+│   286 │   │   self._set_variables(variables)                                 │
+│ ❱ 287 │   │   reply = self._manager.client.execute_interactive(              │
+│   288 │   │   │   code,                                                      │
+│   289 │   │   │   silent=silent,                                             │
+│   290 │   │   │   store_history=store_history,                               │
+│                                                                              │
+│ <local-tool-dir>/lib/python3.12/site-packag │
+│ es/jupyter_kernel_client/wsclient.py:1073 in execute_interactive             │
+│                                                                              │
+│   1070 │   │   │   # wait for output and redisplay it                        │
+│   1071 │   │   │   while True:                                               │
+│   1072 │   │   │   │   if not self.connection_ready.is_set():                │
+│ ❱ 1073 │   │   │   │   │   raise RuntimeError("Connection was lost.")        │
+│   1074 │   │   │   │                                                         │
+│   1075 │   │   │   │   if timeout is not None:                               │
+│   1076 │   │   │   │   │   timeout = max(0, deadline - time.monotonic())     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+RuntimeError: Connection was lost.
+[colab-suite 22:00:20] $ colab stop -s suite-prithvi-4e29bc1-14ae
+[colab] Stopping session 'suite-prithvi-4e29bc1-14ae'...
+[colab] Session terminated.
+[colab-suite 22:00:22] FAIL: prithvi-flood-segmentation-pipeline@4e29bc1 -> <local-run-dir>

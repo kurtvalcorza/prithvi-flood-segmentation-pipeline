@@ -1,0 +1,31 @@
+{
+  "what": "Transcription of the Section 8 fresh-test output of the evaluation of record (hosted Colab Tesla T4, commit 9fd2b76, notebook blob f030a974, 2026-10-19). The report the notebook wrote, outputs/score_once/prithvi_flood_segmentation_fresh_test_report.json (2.7 KB, listed in the run's outputs), stayed on the released Colab VM and was not saved by the suite. Every field below is copied verbatim from the printed lines in exec.log / the output notebook.",
+  "gap": "Not printed and therefore not retained: the report's per-chip rows ('chips'), the full 'bootstrap' block beyond change and ci95 (n_boot, seed, per-arm pooled IoU at more digits), 'settings', 'label_reason', 'endpoint', 'power' and the ledger contents. Their definitions are in src/prithvi_flood_segmentation_pipeline/scoring.py at 3c6cd38 and in docs/prithvi-flood-preregistration.md.",
+  "source_lines": {
+    "preregistration_check": {"masked": false, "preregistered": true, "will_fetch_fresh_test": true, "settings_differing": []},
+    "fresh_test": {
+      "test_look": "pre-registered evaluation (this runtime)",
+      "chips": 23,
+      "frozen_water_iou": 0.8815,
+      "selected_water_iou": 0.8816,
+      "change": 0.0,
+      "ci95": [-0.0024, 0.0021],
+      "verdict": "no detectable change",
+      "report": "outputs/score_once/prithvi_flood_segmentation_fresh_test_report.json",
+      "write_errors": []
+    },
+    "grid": {
+      "grid": "on",
+      "selection": {"selected": "C0", "rule": "no challenger beat C0 by >= 0.005; C0 kept"},
+      "grid_hash": "68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a",
+      "grid_rows": [
+        {"name": "C0", "lr": 1e-05, "trainable": "decoder", "val_loss": [0.130594, 0.123945, 0.117766, 0.127696, 0.124411], "best_epoch": 2, "kept_val_loss": 0.117766},
+        {"name": "C1", "lr": 3e-05, "trainable": "decoder", "val_loss": [0.130594, 0.141085, 0.12619, 0.146175, 0.137802], "best_epoch": 2, "kept_val_loss": 0.12619},
+        {"name": "C2", "lr": 1e-05, "trainable": "decoder+last_block", "val_loss": [0.130594, 0.124042, 0.117717, 0.128099, 0.123154], "best_epoch": 2, "kept_val_loss": 0.117717}
+      ]
+    },
+    "determinism": {"cudnn.deterministic": true, "cudnn.benchmark": false, "use_deterministic_algorithms": true, "warn_only": false, "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "replaced_ops": ["cross_entropy/NLLLoss", "interpolate(bilinear)", "AdaptiveAvgPool2d"], "patched_sites": 7},
+    "exposed_development_test": {"split": "exposed development test (12 chips; scored in every earlier run; descriptive only)", "water_iou": {"baseline_no_water": 0.0, "frozen": 0.7301, "adapted": 0.7459}, "change_water_iou": 0.0158, "mean_iou": {"baseline_no_water": 0.4024, "frozen": 0.8321, "adapted": 0.8414}},
+    "reload_parity": {"positive_iou_diff": 0.0, "metrics_identical": true, "max_abs_score_diff": 0.0}
+  }
+}
