@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .pipeline import DETERMINISM_FLAGS, atomic_write_json
-from .samples import FRESH_POOL_DIGEST, MASK_ENV, SAMPLE_LABEL_SOURCE, fresh_test_masked  # noqa: F401 (MASK_ENV re-exported)
+from .samples import FRESH_POOL_DIGEST, SAMPLE_LABEL_SOURCE, fresh_test_masked
 
 GRID: tuple[dict[str, Any], ...] = (
     {"name": "C0", "lr": 1e-5, "trainable": "decoder"},

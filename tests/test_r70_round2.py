@@ -287,3 +287,13 @@ def test_f6_adaptive_pool_in_float16_matches_upstream_float16(scale):
     up16 = torch.nn.AdaptiveAvgPool2d(scale)(x.half()).float()
     ours16 = P._deterministic_pool_class()(scale)(x.half()).float()
     assert (ours16 - up16).abs().max().item() <= FP16_ATOL and (ours16 - ref32).abs().max().item() <= FP16_ATOL
+
+
+def test_embedded_modules_keep_no_relative_import(notebook):
+    """The generator strips package-relative imports; a line it cannot strip would fail at import in the notebook."""
+    code = [c for c in notebook["cells"] if c["cell_type"] == "code"]
+    embedded = [c for c in code if c["metadata"].get("dimer", {}).get("embedded_module")]
+    assert embedded
+    for cell in embedded:
+        source = "".join(cell["source"])
+        assert not re.search(r"^\s*from \.", source, re.M), cell["metadata"]["dimer"]["embedded_module"]

@@ -192,7 +192,7 @@ def _env_unmasked(monkeypatch, request):
     """The score-once tests score stand-ins only; score_fresh_test now re-reads DIMER_MASK_FRESH_TEST itself (F1,
     round 2). The one test that can touch the real fresh objects keeps the caller's mask."""
     if "fresh_pin_metadata" not in request.node.name:
-        monkeypatch.delenv(SC.MASK_ENV, raising=False)
+        monkeypatch.delenv(S.MASK_ENV, raising=False)
 
 
 def _settings(**changes):
