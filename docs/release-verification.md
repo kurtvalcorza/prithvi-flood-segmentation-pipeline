@@ -195,6 +195,21 @@ Evidence: `docs/execution-evidence/2026-10-19-9fd2b76/`. The output notebook's 3
 
 The 70m3 output notebook (`d2855858ec72b1cc5218e6e208102e55d072d054724747f75586e42a91422e9b`, sources equal to blob `a7322970`) is not committed; its outputs are in its suite log and `exec.log`.
 
+### Hosted T4 reproduction, 2026-10-20 (`5fd513a` / `568fed07`)
+
+The first run of the record-pinned notebook (`RECORDED_EVALUATION` set and `RECORDED_SELECTION = "C0"` in `26b0a22`) in a fresh Colab runtime: the second hosted look at the 23-chip fresh test, labelled `reproduction` as the score-once rule requires. Evidence: `docs/execution-evidence/2026-10-20-5fd513a/`. The output notebook's 36 cell sources equal blob `568fed07`; `run_summary.json` records `input_unchanged: true`, `exec_exit_code: 0`, wall 451.7 s, started 2026-10-20T00:41:02Z.
+
+- **Grid:** `grid_hash` `68b0a351ae2db8d39ad89bfe2818a4d7012761106a6e958f86fde09b8bd9651a` (equal to the record and both masked runs); C0 kept.
+- **Section 8 check:** `{'masked': False, 'preregistered': True, 'will_fetch_fresh_test': True, 'settings_differing': []}`.
+- **Fresh test:** *reproduction*; pooled water IoU frozen 0.8815, selected 0.8816, change 0.0, 95 % CI [−0.0024, 0.0021]; verdict **no detectable change**; `write_errors: []`.
+- **Record comparison:** `{'reproduction_of': '2026-10-19 hosted Tesla T4, commit 9fd2b76', 'matches_record': True, 'differs': []}`.
+
+| File | Captured | Committed | Replacements |
+|---|---|---|---|
+| `exec.log` | `860f656e380039746b5a76fec9b00d9524d08cac6dc681cd5bfcb2ae7c377e22` | `c333d18950db7270f828501c6e32826dd59dca65a08ddcaff88868e2af7f34e8` | 2 (run directory → `<local-run-dir>`) |
+| `run_summary.json` | `407d1b1153ea5b708a83388cac7a46229fb18ea3135ecf0fcb795003755f541b` | unchanged | 0 |
+| `prithvi_flood_segmentation_colab_5fd513a_colab-cli-t4_output.ipynb` | `03dfd55b633f5fb92390409e95cabc3a3c621c0840bece99c49be4c055146f82` | unchanged | 0 |
+
 ## Current status
 
 **Candidate.** The tutorial was regenerated (generator `build_notebook.py/2.2`: isolated uv environment from a hash lock, no in-kernel install; the 2026-10-05 sweep fixes; the 2026-10-02 review fixes FL-M1..M5 / FL-m1..m7; the `google.colab` stub spec fix), and is now blob `e04ef87b` (committed at `eb79368`). That exact blob passed a Colab CLI 0.7.4 sequential execution on a fresh Colab Tesla T4 on 2026-10-08 (default path only) in one pass, no restart, 0 errors, 11/11 code cells, 287.2 s, recorded above with byte-exact evidence under `docs/execution-evidence/2026-10-08-eb79368/`; every worked answer the notebook quotes (0.7301 → 0.7458, 0.8049, precision 0.9251 → 0.9165, recall 0.776 → 0.8002, 0.1306 → 0.1178 at epoch 2, 0.8614 → 0.8748, 10 test regions) matches it (REL13). It is not a browser `Run all`, and the optional BYOD path (REL12), the upload dialog and the closing activity were not exercised, so the registry stays **Candidate** pending review for promotion (REL14). History: the blob `a61580e4` (committed at `b6240ae`, the idempotent-scaling fix) executed in a clean Kaggle Tesla T4 runtime on 2026-09-25 (10/10 ok only after 1 restart after the install cell, 392.9 s, 106 files, 2664 MB fetched and digest-verified inside the notebook, the checkpoint converted in the notebook) with no repository checkout and was then marked Release-grade; a two-pass run does not meet RUN1/RUN10/ENV6 (review FL-M1), so that record covers only that blob. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
