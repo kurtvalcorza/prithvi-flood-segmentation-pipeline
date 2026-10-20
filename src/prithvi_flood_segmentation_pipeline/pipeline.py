@@ -6,8 +6,16 @@ of the decoder to a user's labelled chips with a portable adapter.
 Prithvi-EO-2.0 (Szwarcman et al., 2024) is a ViT-L masked-autoencoder foundation model for Harmonized Landsat
 Sentinel-2 imagery; the `TL` variant adds temporal and location embeddings. The checkpoint packaged here is the
 upstream authors' fine-tune for flood mapping: the 300 M-parameter encoder, a `LearnedInterpolateToPyramidal` neck
-over four encoder depths, a UPerNet decoder and a two-class head, trained on the 446 hand-labelled 512 × 512 chips
-of Sen1Floods11 (six bands: blue, green, red, narrow NIR, SWIR 1, SWIR 2) with TerraTorch.
+over four encoder depths, a UPerNet decoder and a two-class head, fine-tuned with TerraTorch on the 252-chip official
+training split of the hand-labelled Sen1Floods11 chips (512 × 512, Sentinel-2 L1C top-of-atmosphere reflectance;
+six bands: blue, green, red, narrow NIR, SWIR 1, SWIR 2), with the 89-chip validation split used for early stopping.
+
+Deterministic training (R70-DET1): torch 2.14.0 has no deterministic CUDA kernel for the backward of bilinear
+`F.interpolate` and `AdaptiveAvgPool2d`, nor for NLLLoss. `build_model` therefore patches the rebuilt TerraTorch
+UperNet decoder, its pooling pyramid and the `PixelWiseModel` output rescale (instance-level; site-packages are not
+edited) to use separable matmuls with precomputed interpolation / averaging matrices, and `adapt` uses
+`deterministic_cross_entropy`. `set_determinism` sets the cuDNN flags and `torch.use_deterministic_algorithms(True)`
+without `warn_only`; `CUBLAS_WORKSPACE_CONFIG` is set when this module is imported, before CUDA initialises.
 
 The upstream asset is a PyTorch Lightning checkpoint — a torch zip archive whose pickle references only
 `collections.OrderedDict`, `torch._utils._rebuild_tensor_v2` and two storage classes (verified statically by
@@ -28,14 +36,21 @@ import hashlib
 import io
 import json
 import math
+import os
 import pickletools
+import random
+import tempfile
 import time
+import types
 import warnings
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# cuBLAS reads this when its handle is created; set before any CUDA work so deterministic GEMMs are available.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 MODEL_ID = "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11"
 MODEL_REVISION = "91ce9d38086a80b078a192b374df758b8855b732"
@@ -278,12 +293,13 @@ def _check_pinned_source(root: Path) -> dict[str, Any]:
 
 
 def build_model() -> Any:
-    """Instantiate the fine-tuned architecture from the installed `terratorch` package (no pretrained download)."""
+    """Instantiate the fine-tuned architecture from the installed `terratorch` package (no pretrained download),
+    patched by `make_deterministic` (no state-dict change)."""
     from terratorch.models import EncoderDecoderFactory
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return EncoderDecoderFactory().build_model(
+        model = EncoderDecoderFactory().build_model(
             task="segmentation",
             backbone=BACKBONE,
             backbone_pretrained=False,
@@ -295,6 +311,8 @@ def build_model() -> Any:
             **DECODER_ARGS,
             **HEAD_ARGS,
         )
+    make_deterministic(model)  # R70-DET1: deterministic CUDA kernels for every op on the training path
+    return model
 
 
 def convert_model(path: str | Path | None = None) -> dict[str, Any]:
@@ -342,6 +360,243 @@ def convert_model(path: str | Path | None = None) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------------------------------
+# deterministic replacements for ops without a deterministic CUDA kernel (R70-DET1, torch 2.14.0)
+# --------------------------------------------------------------------------------------------------
+
+DETERMINISM_FLAGS: dict[str, Any] = {
+    "cudnn.deterministic": True,
+    "cudnn.benchmark": False,
+    "use_deterministic_algorithms": True,
+    "warn_only": False,
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+}
+DETERMINISTIC_REPLACEMENTS: dict[str, str] = {
+    "cross_entropy/NLLLoss": "deterministic_cross_entropy: log_softmax x one-hot, masked mean (ignore_index -1)",
+    "interpolate(bilinear)": "deterministic_resize: separable matmul with bilinear interpolation matrices",
+    "AdaptiveAvgPool2d": "DeterministicAdaptiveAvgPool2d: separable matmul with adaptive-pool averaging matrices",
+}
+
+
+def _bilinear_matrix(n_in: int, n_out: int, align_corners: bool) -> Any:
+    """(n_out, n_in) float64 weights reproducing 1-D linear interpolation as torch computes it for a given output
+    size (`area_pixel_compute_source_index`, non-cubic)."""
+    import numpy as np
+
+    matrix = np.zeros((n_out, n_in), dtype=np.float64)
+    for dst in range(n_out):
+        if align_corners:
+            src = dst * (n_in - 1) / (n_out - 1) if n_out > 1 else 0.0
+        else:
+            src = max((dst + 0.5) * (n_in / n_out) - 0.5, 0.0)
+        i0 = min(int(math.floor(src)), n_in - 1)
+        i1 = min(i0 + 1, n_in - 1)
+        lam = src - i0
+        matrix[dst, i0] += 1.0 - lam
+        matrix[dst, i1] += lam
+    return matrix
+
+
+def _adaptive_pool_matrix(n_in: int, n_out: int) -> Any:
+    """(n_out, n_in) float64 averaging weights of torch's adaptive average pooling bins
+    [floor(i * n_in / n_out), ceil((i + 1) * n_in / n_out))."""
+    import numpy as np
+
+    matrix = np.zeros((n_out, n_in), dtype=np.float64)
+    for i in range(n_out):
+        start = (i * n_in) // n_out
+        end = -((-(i + 1) * n_in) // n_out)
+        matrix[i, start:end] = 1.0 / (end - start)
+    return matrix
+
+
+def _separable(x: Any, rows: Any, cols: Any) -> Any:
+    """rows @ x @ cols.T over the last two dims of a (B, C, H, W) tensor, in x's dtype and device."""
+    import torch
+
+    a = torch.as_tensor(rows, dtype=x.dtype, device=x.device)
+    b = torch.as_tensor(cols, dtype=x.dtype, device=x.device)
+    return torch.matmul(torch.matmul(a, x), b.transpose(0, 1))
+
+
+def deterministic_resize(x: Any, size: Sequence[int], align_corners: bool | None = False) -> Any:
+    """Bilinear resize of (B, C, H, W) to `size`, equal to `F.interpolate(mode="bilinear")` up to rounding, built
+    from matmuls (deterministic forward and backward on CUDA)."""
+    h, w = int(size[0]), int(size[1])
+    if tuple(x.shape[-2:]) == (h, w):
+        return x
+    corners = bool(align_corners)
+    return _separable(x, _bilinear_matrix(x.shape[-2], h, corners), _bilinear_matrix(x.shape[-1], w, corners))
+
+
+def deterministic_cross_entropy(logits: Any, target: Any, ignore_index: int = IGNORE_INDEX) -> Any:
+    """Mean cross-entropy over the pixels whose target is not `ignore_index`, equal to
+    `F.cross_entropy(logits, target, ignore_index=ignore_index)` (no class weights), from elementwise ops and sums
+    only, so its CUDA forward and backward are deterministic. `logits` (B, K, H, W), `target` (B, H, W) int."""
+    import torch
+
+    keep = target != ignore_index
+    safe = torch.where(keep, target, torch.zeros_like(target))
+    one_hot = torch.nn.functional.one_hot(safe.long(), logits.shape[1]).permute(0, 3, 1, 2).to(logits.dtype)
+    nll = -(torch.log_softmax(logits, dim=1) * one_hot).sum(dim=1)
+    weight = keep.to(nll.dtype)
+    return (nll * weight).sum() / weight.sum()
+
+
+def _deterministic_pool_class() -> Any:
+    import torch
+
+    class DeterministicAdaptiveAvgPool2d(torch.nn.Module):
+        """Parameter-free drop-in for `nn.AdaptiveAvgPool2d(output_size)` as a separable matmul."""
+
+        def __init__(self, output_size: Any) -> None:
+            super().__init__()
+            size = output_size if isinstance(output_size, (tuple, list)) else (output_size, output_size)
+            self.output_size = (int(size[0]), int(size[1]))
+
+        def forward(self, x: Any) -> Any:
+            return _separable(
+                x,
+                _adaptive_pool_matrix(x.shape[-2], self.output_size[0]),
+                _adaptive_pool_matrix(x.shape[-1], self.output_size[1]),
+            )
+
+    return DeterministicAdaptiveAvgPool2d
+
+
+def _ppm_forward(self: Any, x: Any) -> list[Any]:
+    """terratorch 1.2.13 `PPM.forward` with `deterministic_resize` for the bilinear upsampling."""
+    return [deterministic_resize(ppm(x), x.shape[2:], align_corners=self.align_corners) for ppm in self]
+
+
+def _upernet_forward(self: Any, inputs: Any) -> Any:
+    """terratorch 1.2.13 `UperNetDecoder.forward` with `deterministic_resize` for both bilinear resizes."""
+    import torch
+
+    laterals = [lateral_conv(inputs[i]) for i, lateral_conv in enumerate(self.lateral_convs)]
+    laterals.append(self.psp_forward(inputs))
+    levels = len(laterals)
+    for i in range(levels - 1, 0, -1):
+        laterals[i - 1] = laterals[i - 1] + deterministic_resize(
+            laterals[i], laterals[i - 1].shape[2:], align_corners=self.align_corners
+        )
+    fpn_outs = [self.fpn_convs[i](laterals[i]) for i in range(levels - 1)]
+    fpn_outs.append(laterals[-1])
+    for i in range(levels - 1, 0, -1):
+        fpn_outs[i] = deterministic_resize(fpn_outs[i], fpn_outs[0].shape[2:], align_corners=self.align_corners)
+    return self.fpn_bottleneck(torch.cat(fpn_outs, dim=1))
+
+
+def _pixelwise_forward(self: Any, x: Any, **kwargs: Any) -> Any:
+    """terratorch 1.2.13 `PixelWiseModel.forward` (no auxiliary heads) with `deterministic_resize` for the output
+    rescale (`mode="bilinear"`, align_corners False)."""
+    import sys
+
+    upstream = sys.modules[type(self).__module__]
+    image_size_out = self.image_size_out or kwargs.get("image_size") or upstream.get_image_size(x)
+    if self.patch_size and self.padding is not None:
+        x = upstream.pad_images(x, self.patch_size, self.padding)
+    input_size = upstream.get_image_size(x)
+    features = self.encoder(x, **kwargs)
+    features = self.neck(features, image_size=input_size)
+    mask = self.head(self.decoder([f.clone() for f in features]))
+    if self.rescale and mask.shape[-2:] != input_size:
+        mask = deterministic_resize(mask, input_size, align_corners=False)
+    mask = self._check_for_single_channel_and_squeeze(mask)
+    mask = upstream.center_crop(mask, image_size_out)
+    return upstream.ModelOutput(output=mask, auxiliary_heads={})
+
+
+def make_deterministic(model: Any) -> list[str]:
+    """Patch a rebuilt TerraTorch flood model in place (instance-level; no parameter or buffer is added or renamed,
+    so the state dict and strict loading are unchanged): every `AdaptiveAvgPool2d` becomes
+    `DeterministicAdaptiveAvgPool2d`, and the UperNet decoder, its PPM and the PixelWiseModel output rescale use
+    `deterministic_resize`. Returns the patched sites."""
+    import torch
+
+    pool_cls = _deterministic_pool_class()
+    patched: list[str] = []
+    for name, module in list(model.named_modules()):
+        for child_name, child in list(module.named_children()):
+            if isinstance(child, torch.nn.AdaptiveAvgPool2d):
+                setattr(module, child_name, pool_cls(child.output_size))
+                patched.append(f"{name}.{child_name}: AdaptiveAvgPool2d -> DeterministicAdaptiveAvgPool2d")
+        kind = type(module).__name__
+        if kind == "PPM":
+            module.forward = types.MethodType(_ppm_forward, module)
+            patched.append(f"{name}: PPM.forward bilinear -> deterministic_resize")
+        elif kind == "UperNetDecoder":
+            module.forward = types.MethodType(_upernet_forward, module)
+            patched.append(f"{name}: UperNetDecoder.forward bilinear -> deterministic_resize")
+    if type(model).__name__ == "PixelWiseModel":
+        if getattr(model, "aux_heads", None):
+            raise ValueError("make_deterministic: auxiliary heads are not supported")
+        model.forward = types.MethodType(_pixelwise_forward, model)
+        patched.append("PixelWiseModel.forward output rescale -> deterministic_resize")
+    model.deterministic_patches = list(patched)
+    return patched
+
+
+def set_determinism(seed: int = 0) -> dict[str, Any]:
+    """Seed torch / numpy / random and switch on deterministic algorithms without `warn_only` (pre-registered).
+    Returns the flags as they are actually set, for the report."""
+    import numpy as np
+    import torch
+
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", DETERMINISM_FLAGS["CUBLAS_WORKSPACE_CONFIG"])
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    return determinism_state()
+
+
+def determinism_state() -> dict[str, Any]:
+    """The determinism flags as they are set right now (read, not set): recorded and re-checked before scoring."""
+    import torch
+
+    return {
+        "cudnn.deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn.benchmark": bool(torch.backends.cudnn.benchmark),
+        "use_deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
+        "warn_only": bool(torch.is_deterministic_algorithms_warn_only_enabled()),
+        "CUBLAS_WORKSPACE_CONFIG": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+    }
+
+
+def state_fingerprint(model: Any, names: Sequence[str]) -> str:
+    """SHA-256 over the named tensors (sorted, float32 bytes on CPU): the identity of an adapted state."""
+    digest = hashlib.sha256()
+    state = model.state_dict()
+    for name in sorted(names):
+        tensor = state[name].detach().float().cpu().contiguous()
+        digest.update(name.encode("utf-8"))
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
+def atomic_write_bytes(path: str | Path, data: bytes) -> Path:
+    """Write to a temporary file in the same directory, then `os.replace` it onto `path`, so the final path never
+    holds a half-written file."""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".tmp", dir=out.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, out)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return out
+
+
+def atomic_write_json(path: str | Path, payload: Any) -> Path:
+    return atomic_write_bytes(path, json.dumps(payload, indent=2).encode("utf-8"))
+
+
+# --------------------------------------------------------------------------------------------------
 # chips, labels and validation (no model import)
 # --------------------------------------------------------------------------------------------------
 
@@ -353,7 +608,9 @@ INPUT_SCHEMA: dict[str, Any] = {
     "bands": list(BANDS),
     "image_size": IMAGE_SIZE,
     "value_units": (
-        "surface/TOA reflectance × 10 000 (int16, the Sen1Floods11 S2Hand encoding) or reflectance in [0, 1]; "
+        "Sentinel-2 L1C top-of-atmosphere reflectance × 10 000 (int16, the Sen1Floods11 S2Hand encoding) or "
+        "the same reflectance in [0, 1]; products of processing baseline 04.00+ (from 2022-01-25) carry a +1000 DN "
+        "offset (RADIO_ADD_OFFSET -1000) that must be removed first; 10 m grid with the 20 m bands resampled; "
         "values above 2 (REFLECTANCE_MAX) are read as reflectance × 10 000 and scaled by 1e-4; "
         "re-checking a checked record never rescales it"
     ),
@@ -363,8 +620,11 @@ INPUT_SCHEMA: dict[str, Any] = {
     "records": [MIN_RECORDS, MAX_RECORDS],
     "validation": (
         "record shape, band count, chip size, finiteness, value range and label values only. Nothing checks that "
-        "the bands are the six Prithvi bands in the right order, that the reflectance is atmospherically corrected, "
-        "or that the label was drawn for this chip -- any six-band 512 × 512 array is segmented without complaint"
+        "the bands are the six Prithvi bands in the right order, that the product is L1C top-of-atmosphere "
+        "reflectance (an atmospherically corrected L2A or an HLS product is a different input distribution), that "
+        "the post-2022 +1000 offset was removed (it adds about 0.1 to every band and still passes the range check), "
+        "the pixel size or CRS, or that the label was drawn for this chip -- any six-band 512 × 512 array is "
+        "segmented without complaint"
     ),
 }
 
@@ -639,7 +899,7 @@ class PrithviFloodPipeline:
             out = self.model(batch)
         logits = out.output if hasattr(out, "output") else out
         if tuple(logits.shape[-2:]) != tuple(batch.shape[-2:]):
-            logits = torch.nn.functional.interpolate(logits.float(), size=batch.shape[-2:], mode="bilinear", align_corners=False)
+            logits = deterministic_resize(logits.float(), batch.shape[-2:], align_corners=False)
         return logits.float()
 
     # ---- inference -------------------------------------------------------------------------------------
@@ -734,6 +994,7 @@ class PrithviFloodPipeline:
         import torch
 
         torch.manual_seed(seed)
+        random.seed(seed)
         started = time.perf_counter()
         model = self.model
         name_set = set(names)
@@ -755,7 +1016,7 @@ class PrithviFloodPipeline:
                 batch = val_checked[start : start + batch_size]
                 logits = self._logits(np.stack([r["image"] for r in batch]))
                 target = torch.from_numpy(np.stack([r["label"] for r in batch])).to(self.device)
-                losses.append(float(torch.nn.functional.cross_entropy(logits, target, ignore_index=IGNORE_INDEX)))
+                losses.append(float(deterministic_cross_entropy(logits, target, ignore_index=IGNORE_INDEX)))
             return sum(losses) / len(losses)
 
         initial_state = {k: v.detach().clone() for k, v in model.state_dict().items() if k in name_set}
@@ -788,7 +1049,7 @@ class PrithviFloodPipeline:
                         images, labels = images[..., ::-1, :], labels[..., ::-1, :]
                     logits = self._logits(np.ascontiguousarray(images), grad=True)
                     target = torch.from_numpy(np.ascontiguousarray(labels)).to(self.device)
-                    loss = torch.nn.functional.cross_entropy(logits, target, ignore_index=IGNORE_INDEX)
+                    loss = deterministic_cross_entropy(logits, target, ignore_index=IGNORE_INDEX)
                     optimiser.zero_grad(set_to_none=True)
                     scaler.scale(loss).backward()
                     scaler.unscale_(optimiser)
@@ -853,8 +1114,9 @@ class PrithviFloodPipeline:
             raise ValueError("nothing to save: call adapt() first")
         from safetensors.torch import save_file
 
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
+        final = Path(output_dir)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        out = Path(tempfile.mkdtemp(prefix=f".{final.name}.", dir=final.parent))  # renamed onto `final` when complete
         names = set(self.adapter["trainable_names"])
         tensors = {k: v.detach().cpu().contiguous() for k, v in self.model.state_dict().items() if k in names}
         weights_path = out / ARTIFACT_WEIGHTS_NAME
@@ -872,7 +1134,12 @@ class PrithviFloodPipeline:
             "metadata": dict(metadata or {}),
         }
         (out / ARTIFACT_MANIFEST_NAME).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        return out
+        if final.exists():
+            import shutil
+
+            shutil.rmtree(final)
+        os.replace(out, final)
+        return final
 
     @staticmethod
     def check_artifact_manifest(root: Path, manifest: Mapping[str, Any]) -> tuple[Path, str]:

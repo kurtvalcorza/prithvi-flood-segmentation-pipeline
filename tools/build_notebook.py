@@ -40,8 +40,23 @@ import sys
 from pathlib import Path
 from typing import Any
 
-GENERATOR_VERSION = "build_notebook.py/2.2"
-NOTEBOOK_SPEC = "2.2"
+GENERATOR_VERSION = "build_notebook.py/2.2-r70"
+NOTEBOOK_SPEC = "2.5"
+NOTEBOOK_KINDS = ("TUTORIAL", "DEMO", "WORKSHOP", "CAPSTONE")  # NOTEBOOK_SPEC 2.5 §3.7 (KND1)
+# NOTEBOOK_SPEC 2.5 §3.6.5 (DOC17-DOC21): the canonical use notice, after the title and before the first code cell.
+USE_NOTICE = (
+    "> **⚠️ Notice.** For research, training and evaluation only. Not validated for production,\n"
+    "> operational flood mapping, disaster-response decisions or other safety-critical use.\n"
+    "> Running this notebook downloads third-party\n"
+    "> model weights and datasets under their own licenses (see the model card) and uses compute\n"
+    "> on your own Colab or Kaggle account. Data you bring stays in your runtime, and you are\n"
+    "> responsible for having the right to use it. Results here are tutorial evidence, not\n"
+    "> benchmarks. Everything is provided \"as is\", without warranty of any kind. To the maximum\n"
+    "> extent permitted by law, the maintainers and the DIMER platform accept no liability for\n"
+    "> its use."
+)
+# /2.2-r70 (row-70 tutorial review, 2026-10-19): NOTEBOOK_SPEC 2.5 with `metadata.dimer.notebook_kind` and the use
+# notice; the fourth carried module (scoring.py) holds the pre-registered grid, reading rule and score-once ledger.
 
 # ST2: default rewrite rule; a template may replace it with its own `rewrites` list. Every rule must
 # match exactly once across the embedded modules, so a silent no-op is impossible.
@@ -302,6 +317,10 @@ while True:
     _count += 1
     filename = f"<isolated cell {_count}>"
     source = message[1]
+    # The kernel's DIMER_MASK_FRESH_TEST, re-read for every cell: a mask set in the kernel after this worker started
+    # reaches it. Fail-closed: it can only switch the mask on, never off (a mask set inside the worker stays).
+    if len(message) > 2 and message[2] == "1":
+        os.environ["DIMER_MASK_FRESH_TEST"] = "1"
     linecache.cache[filename] = (len(source), None, source.splitlines(True), filename)
     try:
         signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -362,7 +381,7 @@ class IsolatedRuntime:
 
     def run(self, source):
         try:
-            self._send.send(("run", source))
+            self._send.send(("run", source, os.environ.get("DIMER_MASK_FRESH_TEST")))
         except OSError:
             raise self._exited() from None
         while True:
@@ -847,9 +866,14 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         if n_mod == 1
         else f"the repository's package ({n_mod} modules under `{ctx['pkg_rel']}/`, at revision `{ctx['module_revision'][:12]}`) verbatim in Section 2"
     )
+    kind = template.get("notebook_kind", "TUTORIAL")
+    if kind not in NOTEBOOK_KINDS:
+        raise SystemExit(f"template notebook_kind {kind!r} is not one of {NOTEBOOK_KINDS}")
     header = (
         f"# {template['title']}\n\n{badges}\n\n"
+        f"{USE_NOTICE}\n\n"
         f"**Profile:** `{template['profile']}`  \n"
+        f"**Kind:** `{kind}`  \n"
         f"**Mode:** `{mode}`  \n"
         f"**Notebook specification:** DIMER Notebook Specification {NOTEBOOK_SPEC} — **standalone** (§4)  \n"
         f"**Capability:** {template['capability']}\n\n"
@@ -1065,6 +1089,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             "dimer": {
                 "notebook_profile": template["profile"],
                 "notebook_mode": mode,
+                "notebook_kind": kind,
                 "notebook_spec": NOTEBOOK_SPEC,
                 "standalone": True,
                 **({"environment": "isolated hash-locked uv environment; nothing installed into the kernel"} if isolated else {}),

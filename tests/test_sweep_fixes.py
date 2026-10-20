@@ -139,7 +139,7 @@ def test_swp_g_guided_layer_is_present_and_infrastructure_is_collapsed(notebook)
 
 def test_swp_g_checkpoint_answers_quote_the_recorded_run(notebook):
     md = _markdown(notebook)
-    for value in ("0.7301", "0.7458", "0.8049", "0.1306", "0.1178", "0.8614", "0.8748"):
+    for value in ("0.7301", "0.7459", "0.8049", "0.1306", "0.1178", "0.8614", "0.8747"):
         assert value in md, value
 
 
@@ -162,8 +162,8 @@ def _metrics(water_iou: float) -> dict:
 
 
 def _section_7_source(notebook: dict) -> str:
-    source = _cell(notebook, "delta_water_iou = ")
-    return source[: source.index("# Two held-out chips")]  # the review-fix figure (FL-m5) is tested in test_review_fixes.py
+    source = _cell(notebook, "comparison['change_water_iou']")
+    return source[: source.index("# Two exposed development chips")]  # the review-fix figure (FL-m5) is tested in test_review_fixes.py
 
 
 def _section_7_namespace(adapted_iou: float, kept_val_loss: float) -> dict:
@@ -173,20 +173,28 @@ def _section_7_namespace(adapted_iou: float, kept_val_loss: float) -> dict:
         "CLASS_NAMES": ("no water", "water"), "frozen_test": {"model": _metrics(0.7), "baseline_no_water": _metrics(0.0)},
         "frozen_val": {"model": _metrics(0.7)}, "adapt_result": {"history": history, "best_epoch": 1}, "MODEL_ID": "m", "MODEL_REVISION": "r",
         "MODEL_KEY": "k", "data_source": "stand-in", "dataset_report": {}, "adapt_seconds": 0.0,
+        "grid_on": False, "grid_rows": [], "selection": {}, "GRID_HASH": "h", "determinism": {}, "atomic_write_json": _atomic_write_json,
     }
 
 
-@pytest.mark.parametrize(("adapted_iou", "verdict"), [(0.6, "worse"), (0.7, "no change"), (0.8, "improved")])
-def test_swp_a_section_7_records_the_verdict_and_writes_the_report(notebook, tmp_path, monkeypatch, adapted_iou, verdict):
+def _atomic_write_json(path, payload):
+    from prithvi_flood_segmentation_pipeline.pipeline import atomic_write_json
+
+    return atomic_write_json(path, payload)
+
+
+@pytest.mark.parametrize(("adapted_iou", "change"), [(0.6, -0.1), (0.7, 0.0), (0.8, 0.1)])
+def test_swp_a_section_7_records_the_change_and_writes_the_report(notebook, tmp_path, monkeypatch, adapted_iou, change):
     source = _section_7_source(notebook)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "outputs").mkdir()
     namespace = _section_7_namespace(adapted_iou, 0.4)
     exec(compile(source, "<section 7>", "exec"), namespace)
-    assert namespace["comparison"]["verdict"]["adapted_vs_frozen_water_iou"] == verdict
+    assert namespace["comparison"]["change_water_iou"] == change
     report = json.loads((tmp_path / "outputs" / "prithvi_flood_segmentation_evaluation_report.json").read_text(encoding="utf-8"))
-    assert report["comparison"]["verdict"]["adapted_vs_frozen_water_iou"] == verdict
-    assert "'verdict': comparison['verdict']," in _cell(notebook, "result_payload = {")
+    assert report["comparison"]["change_water_iou"] == change and report["comparison"]["reading"].startswith("descriptive")
+    assert "verdict" not in report["comparison"]  # R70-m3: the exposed development test carries no verdict
+    assert "'fresh_test': {" in _cell(notebook, "result_payload = {")
 
 
 def test_swp_a_contract_checks_still_stop_the_run(notebook, tmp_path, monkeypatch):
@@ -263,8 +271,8 @@ def test_swp_f_pinned_base_is_kept_once_and_restored(notebook):
 def test_swp_f_sections_5_and_6_restore_before_evaluating_or_training(notebook):
     s5 = _cell(notebook, "frozen_test = pipe.evaluate(test_records)")
     assert s5.index("restored_tensors = restore_pinned_base(pipe)") < s5.index("frozen_test = pipe.evaluate(test_records)")
-    s6 = _cell(notebook, "adapt_result = pipe.adapt(")
-    assert s6.index("restore_pinned_base(pipe)") < s6.index("adapt_result = pipe.adapt(")
+    s6 = _cell(notebook, "grid_on = RUN_GRID")
+    assert s6.index("restore_pinned_base(pipe)") < s6.index("result = pipe.adapt(")
 
 
 # --- SWP-B: BYOD_PATH works off Colab; the upload fallback is guarded ------------------------------------------------

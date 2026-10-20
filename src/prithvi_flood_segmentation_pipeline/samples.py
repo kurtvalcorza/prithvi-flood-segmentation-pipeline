@@ -7,8 +7,15 @@ round-robin over the ten flood-event regions with a fixed seed on 2026-09-19 fro
 least 60 % valid (not cloud / no-data) and at least 3 % water, so every chip can be scored — pinned here by object
 path, byte size and SHA-256 of both the 13-band `S2Hand` GeoTIFF and its `LabelHand` mask. Every object is fetched from the
 public Sen1Floods11 bucket at run time and refused on any byte-size or SHA-256 mismatch; the repository
-redistributes none of the chips. The roles follow the upstream splits, so the test chips are chips the packaged
-model never trained on.
+redistributes none of the chips. The roles follow the upstream splits. The 12 test-split chips were scored in every
+earlier run and read during the 2026-09-19 build sweep, so they are the "exposed development test"; they are held
+out only at chip level (all their events are in the upstream training split, several touch training chips).
+
+The FRESH TEST (docs/prithvi-flood-preregistration.md) is 23 further official test-split chips that this notebook
+never scored, pinned in `FRESH_TEST_RECORDS`: the 78 test chips outside the sample, filtered by the same label rule
+(>= 60 % valid, >= 3 % water) to 25, minus the two upstream example chips the notebook displays. They come from the
+same 8 events as the training data and most lie within one chip width of a training or validation chip, so they test
+within-event generalisation, not new events.
 
 A record is ``{id, image, label}``: a (6, 512, 512) reflectance array (or a GeoTIFF path) and a (512, 512) mask
 with 0 = no water, 1 = water, -1 = no data / cloud (or a GeoTIFF path).
@@ -20,6 +27,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import urllib.request
 import zipfile
 from collections.abc import Mapping, Sequence
@@ -31,6 +39,7 @@ from .pipeline import (
     MIN_RECORDS,
     MODEL_ID,
     S2_L1C_BAND_INDICES,
+    atomic_write_bytes,
     check_record,
     chip_digest,
     read_chip,
@@ -402,6 +411,189 @@ SAMPLE_RECORDS: tuple[tuple[str, str, int, str, int, str], ...] = (
 )
 SAMPLE_LABEL_SOURCE = f"{CORPUS_NAME}; {CORPUS_RELEASE}; {CORPUS_LICENSE}"
 
+# The pre-registered fresh test (2026-10-19): (chip, S2Hand bytes, S2Hand sha256, LabelHand bytes, LabelHand sha256).
+FRESH_TEST_RECORDS: tuple[tuple[str, int, str, int, str], ...] = (
+    (
+        "India_1018327",
+        2334123,
+        "2d162175fec6842370d1bb224414f132dbc5463d0a0ef64baae8692942b5d585",
+        11303,
+        "98290650b74df82e3acc22aaef90bcb4272821b2afb53f05af683f94b5fe1b56",
+    ),
+    (
+        "India_399883",
+        2129825,
+        "3af2d0b68c1615fbf3ccf93a1ceeaee50145810854c9bab14d8f9ed77c584079",
+        9902,
+        "2024277074e45016fa82d8300353d8ff1476dfe68eb72d6623b838b1d4dfe973",
+    ),
+    (
+        "India_570384",
+        2485522,
+        "615bb89a7871fdb5bcb577e4cb3ad5a3b7ce581779d1d54a470fd36594fa57d3",
+        9209,
+        "15345107b9bef08c30951b22fe5240758bfbff1873daf55b6ff7c4ff9c83e96b",
+    ),
+    (
+        "India_591317",
+        2166164,
+        "399e75dcc6b3bc268f427cb3aa70c47d828eb09eccb08f9ae8866b75c6cb3937",
+        8323,
+        "6f5f4c7a34bae3b62348af93b642b2e6e420c9a2d77a857145b46fda8348873a",
+    ),
+    (
+        "India_828067",
+        2650684,
+        "77cb8feb1c094931f7bc23ca97d6fa12e2dd6cfe8c7d2e16c772350ee03af7b6",
+        10782,
+        "5f32ba153c9fa448b9ebdd8368bfff54b74c724a22ff644aaac1c55ace122237",
+    ),
+    (
+        "India_952728",
+        2612711,
+        "55dca19c550154c560dcee7df23f7866eff90b96856e7c5f931f0d704c4a9b47",
+        11069,
+        "45edbf83b77d384bff6a15dd23d8a4e3ff5ddc3df28efe0704be843ca7b0583b",
+    ),
+    (
+        "Mekong_1443339",
+        2349634,
+        "afbc01a747e5c6d7b6b51c733c92c187323f25d7a24f8f7411836a326b09201b",
+        13991,
+        "e306812aaf1587c46f9b2a0c63e4af4fe46ac9fd46a9e6286dd41d70f824454e",
+    ),
+    (
+        "Pakistan_694942",
+        2309701,
+        "e6706858531cf83702787164c6b58125e55ce658cd28155c99fba14c7fccbb40",
+        4661,
+        "095b3e78ea2bed54ed45f453344afd9067fec33fc96b9e3ce8f9d144a4301323",
+    ),
+    (
+        "Paraguay_1029191",
+        2189228,
+        "fc6a1bab4c554bb3370396e5412ff446302941dad1226ef6465fb3a1def39892",
+        6080,
+        "4186a68dae7bee570685f0c4879441ae5a9af6977e1097f215a685a098dd3cf5",
+    ),
+    (
+        "Paraguay_232281",
+        2009196,
+        "b03027bb22e7940e541ec74b5a0f50a6a2c4d9a5d28cbe5610e3a017acab9fdd",
+        6469,
+        "ce0d15ffd97158c4340641268b31f7e73687c81ec3e2184c0a7d6881fd7e2f06",
+    ),
+    (
+        "Paraguay_511199",
+        2144324,
+        "47dec4832e5ec24df44d6286f5251b7bbc00907ed2eb8340d2649f57a27045da",
+        6187,
+        "2ed431be505531a2147a4237d9d927ad89690b1a59e2b2d20d0b47ae70f2b0a8",
+    ),
+    (
+        "Paraguay_651904",
+        2090599,
+        "180ab057b125584b7e83581e79be763b9e8b3368909ab388587b5f4119aa0fa9",
+        3472,
+        "44d1514eeef21b3a0c04aa0fa7c1c49ef780f4c4835c734bfa2db172b455d289",
+    ),
+    (
+        "Paraguay_790830",
+        2213654,
+        "8bba3ef74cefe2f53d05043a5fd8dac50c1f94642b78ea5e58039706021d6189",
+        3950,
+        "256861e8f5e55203471d81b6dcdfe70c2ec9a915dc52eb3805fdd540f950a435",
+    ),
+    (
+        "Somalia_322855",
+        2319134,
+        "908f9600f5d9537542656315f3dc1f79f5f6c92ca9fb72d53b2722f1d81e42af",
+        11099,
+        "c38f887de34306b7a40e8a0edbbc756f5dad289ee52c41f559cae9b29dcf4e43",
+    ),
+    (
+        "Somalia_685158",
+        2672633,
+        "20d281d5cc8cafb963a89bdddbceb711e35b6b7784e64fcae38923db4d53283b",
+        14360,
+        "9a7bed202008b4ac9525d07c98c3d3882a9f1f121125df5b6c150731c9d6ff3a",
+    ),
+    (
+        "Spain_5650136",
+        2206996,
+        "7d56099682c125ad85a5bcaac6623c0768ec3bb567dc8982ef3e8a4b36fc8a24",
+        9758,
+        "c0a53cf82bd45a0fb9b7f1c2e9408e9dd817c06a633045fce88b017b7aa990b5",
+    ),
+    (
+        "Spain_7387658",
+        2192267,
+        "80b0abea99212e477d4925d04df7226b98d151218598631282dd6fb6d6da3d8d",
+        19124,
+        "d7f6c03457e5191733d46f9d52f8342af1d73cfbeafeeba100794443b01f79fd",
+    ),
+    (
+        "Sri-Lanka_534068",
+        1760466,
+        "5aae329bce9537116dbff0de3d1fac40039a49f4b6c45447fe7a5eb62eff098c",
+        1588,
+        "e77e5e64025852b82ab5f8624ed126e866a6fff9c661635313aab9276522ad4b",
+    ),
+    (
+        "Sri-Lanka_649970",
+        2344414,
+        "ea8a1788c248cfcd4217189cb67eefc30d0b3bc8235cd79b067b41fb70f743f6",
+        8972,
+        "d9ad0a6879b7a507e4030e7228ca021ee96666c15eb72e6b7700b7243ac5bc78",
+    ),
+    (
+        "Sri-Lanka_713926",
+        2361023,
+        "40239d792db24b7c3027370699782b189fde8b10cd696422b17c68f596d7fcf6",
+        4008,
+        "b07e813683173d668958cb456048d9904ac9f7ed9e5c8d4791d93cdec04412cc",
+    ),
+    (
+        "USA_595451",
+        3030491,
+        "0bef53ef00039674cde3ddc984d27c822a619c81467546be726c90126693b9be",
+        6150,
+        "5bd0328de97ba3435661ef47a313d96541234fb21240bba5e9f8c65f19b5317d",
+    ),
+    (
+        "USA_67102",
+        2163989,
+        "d2f7395fcd935345d9435866ccb1c556c520c53ecf7acebd2325fac04cd0e98d",
+        2413,
+        "48c52abfe9c81476960a6a22924e5dbb42fe9016674ff13f3fa9e68693bcfe50",
+    ),
+    (
+        "USA_905409",
+        2093474,
+        "e44a749f3d8cbbaebdb56c1284354040d7b965899dcdbb40454f5c4ba46c60eb",
+        3954,
+        "dfb9d85d04740b0f4555043171b581fef080ea989120c6d43694def8df416de1",
+    ),
+)
+FRESH_TEST_EVENTS = ("India", "Mekong", "Pakistan", "Paraguay", "Somalia", "Spain", "Sri-Lanka", "USA")
+FRESH_TEST_EXCLUDED = ("India_900498", "Spain_7370579")  # upstream example chips the notebook predicts and shows
+FRESH_POOL_DIGEST = "b7706fad689c52b3b848e2bed19da276d59d00cc187f693a0ce249f229ef4815"
+# Set to "1" to mask the fresh test: it is then never fetched or scored. Read from os.environ at every call, never
+# from a flag a caller passes, so a mask set after a worker started (or a stale settings dict) still holds.
+MASK_ENV = "DIMER_MASK_FRESH_TEST"
+
+
+def fresh_test_masked() -> bool:
+    """True when `DIMER_MASK_FRESH_TEST=1` is set in this process's environment right now."""
+    return os.environ.get(MASK_ENV) == "1"
+FRESH_TEST_BYTES = 53_017_076
+
+
+def fresh_pool_digest(rows: Sequence[Sequence[Any]] = FRESH_TEST_RECORDS) -> str:
+    """SHA-256 of the compact JSON of the sorted pin rows (the pre-registered fresh-pool identity)."""
+    canonical = json.dumps(sorted([list(r) for r in rows]), separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -477,6 +669,55 @@ def read_corpus(files: Mapping[str, Mapping[str, bytes]]) -> dict[str, list[dict
         }
         splits[role].append(check_record(raw))  # scaled to reflectance, no-data replaced, label checked
     return splits
+
+
+def fetch_fresh_test(*, cache_dir: str | Path | None = None, fetcher: Any = None) -> list[dict[str, Any]]:
+    """The 23 pre-registered fresh-test chips as checked records (role 'fresh'), each object refused on a size or
+    digest mismatch. Call it only where the fresh test may be scored (the notebook's fresh-test section)."""
+    import tempfile
+
+    if fresh_test_masked():
+        raise RuntimeError(f"{MASK_ENV}=1: the fresh test is masked and is not fetched; this is not a look")
+    if fresh_pool_digest() != FRESH_POOL_DIGEST:
+        raise ValueError("FRESH_TEST_RECORDS do not match the pre-registered fresh-pool digest")
+    records = []
+    for i, (name, image_bytes, image_sha, label_bytes, label_sha) in enumerate(FRESH_TEST_RECORDS):
+        image = fetch_object(object_path(name, "image"), expected=(image_bytes, image_sha), cache_dir=cache_dir, fetcher=fetcher)
+        label = fetch_object(object_path(name, "label"), expected=(label_bytes, label_sha), cache_dir=cache_dir, fetcher=fetcher)
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path, label_path = Path(tmp) / "image.tif", Path(tmp) / "label.tif"
+            image_path.write_bytes(image)
+            label_path.write_bytes(label)
+            raw = {
+                "id": f"fresh-{i:03d}",
+                "source_id": name,
+                "region": name.split("_")[0],
+                "split": "fresh",
+                "image": read_chip(image_path, band_indices=S2_L1C_BAND_INDICES),
+                "label": read_mask(label_path),
+                "source": f"{CORPUS_BASE_URL}{object_path(name, 'image')}",
+            }
+        records.append(check_record(raw))
+    return records
+
+
+def fresh_test_metadata(*, cache_dir: str | Path | None = None, fetcher: Any = None) -> list[dict[str, Any]]:
+    """Resolve and parse every pinned fresh chip WITHOUT scoring: fetch (size + digest verified) and read the TIFF
+    headers only (shape, dtype); no pixel is decoded and no model is touched."""
+    if fresh_test_masked():
+        raise RuntimeError(f"{MASK_ENV}=1: the fresh test is masked and is not fetched")
+    import tifffile
+
+    out = []
+    for name, image_bytes, image_sha, label_bytes, label_sha in FRESH_TEST_RECORDS:
+        entry: dict[str, Any] = {"chip": name}
+        for kind, expected in (("image", (image_bytes, image_sha)), ("label", (label_bytes, label_sha))):
+            data = fetch_object(object_path(name, kind), expected=expected, cache_dir=cache_dir, fetcher=fetcher)
+            with tifffile.TiffFile(io.BytesIO(data)) as tif:
+                series = tif.series[0]
+                entry[kind] = {"shape": list(series.shape), "dtype": str(series.dtype)}
+        out.append(entry)
+    return out
 
 
 def fetch_sample_dataset(*, cache_dir: str | Path | None = None, fetcher: Any = None) -> dict[str, list[dict[str, Any]]]:
@@ -572,28 +813,31 @@ def write_sample_pair(record: Mapping[str, Any], image_path: str | Path, label_p
 
     image_out, label_out = Path(image_path), Path(label_path)
     image_out.parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(image_out, np.asarray(record["image"], dtype=np.float32), photometric="minisblack", planarconfig="separate")
-    tifffile.imwrite(label_out, np.asarray(record["label"], dtype=np.int16), photometric="minisblack")
+    image_buf, label_buf = io.BytesIO(), io.BytesIO()
+    tifffile.imwrite(image_buf, np.asarray(record["image"], dtype=np.float32), photometric="minisblack", planarconfig="separate")
+    tifffile.imwrite(label_buf, np.asarray(record["label"], dtype=np.int16), photometric="minisblack")
+    atomic_write_bytes(image_out, image_buf.getvalue())  # R70-m6: never a half-written file at the final path
+    atomic_write_bytes(label_out, label_buf.getvalue())
     return {"image": str(image_out), "label": str(label_out)}
 
 
 def write_dataset_csv(records: Sequence[Mapping[str, Any]], path: str | Path) -> Path:
     """Write the pairs table of a split (id, image, label, provenance) in the shape BYOD expects."""
     out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["id", "image", "label", "region", "source"])
-        writer.writeheader()
-        for record in records:
-            writer.writerow(
-                {
-                    "id": record["id"],
-                    "image": f"{record.get('source_id', record['id'])}_S2Hand.tif",
-                    "label": f"{record.get('source_id', record['id'])}_LabelHand.tif",
-                    "region": record.get("region", ""),
-                    "source": record.get("source", ""),
-                }
-            )
+    handle = io.StringIO(newline="")
+    writer = csv.DictWriter(handle, fieldnames=["id", "image", "label", "region", "source"])
+    writer.writeheader()
+    for record in records:
+        writer.writerow(
+            {
+                "id": record["id"],
+                "image": f"{record.get('source_id', record['id'])}_S2Hand.tif",
+                "label": f"{record.get('source_id', record['id'])}_LabelHand.tif",
+                "region": record.get("region", ""),
+                "source": record.get("source", ""),
+            }
+        )
+    atomic_write_bytes(out, handle.getvalue().encode("utf-8"))
     return out
 
 
