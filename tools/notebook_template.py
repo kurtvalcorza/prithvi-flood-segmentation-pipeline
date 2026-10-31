@@ -185,7 +185,9 @@ TEMPLATE = {
                 "GeoTIFF (a mistake names the row, the file and the fix), and splits your chips: by your `split` column if there is "
                 "one, else by your `group` column so a scene or event never sits in two roles, else chip by chip with a warning. "
                 "The per-chip split needs at least seven chips (`byod_minimum_chips`). Every run of this cell first removes this "
-                "notebook's earlier exports from `outputs/`, so the files there always describe the current run.\n\n"
+                "notebook's earlier exports from `outputs/`, so the files there always describe the current run. A refused input "
+                "stops the cell with one line, `Refused: <file>: <reason and fix>`, and also removes the earlier run's results from "
+                "the session, so nothing from that run can pass as a result of your chips.\n\n"
                 "Look for: 24 / 8 / 12 chips from the official splits (`split_rule`) with water fractions around 0.2..0.4, a written "
                 "sample pair (`outputs/{stem}_sample_chip.tif` + `_sample_label.tif`, the BYOD shape), and three refusal probes — a "
                 "five-band chip, a label with an unknown class, a chip with reflectance far outside range — each padded with other "
@@ -299,28 +301,68 @@ TEMPLATE = {
                 '    return splits, rule\n'
                 '\n'
                 '\n'
+                'class BYODRefusal(ValueError):\n'
+                '    """A refused BYOD input: ``BYODRefusal(file_name, reason_and_fix)``."""\n'
+                '\n'
+                '    dimer_refusal = True\n'
+                '\n'
+                '    def __init__(self, file_name, reason):\n'
+                '        super().__init__(f"{{file_name}}: {{reason}}")\n'
+                '        self.file_name = file_name\n'
+                '        self.reason = reason\n'
+                '\n'
+                '    def _render_traceback_(self):\n'
+                '        return [f"Refused: {{self}}"]\n'
+                '\n'
+                '\n'
+                "# The results an earlier run of Sections 4-9 left in this session. A refused input removes them (DAT20), so none of them can pass as this input's result.\n"
+                'RUN_RESULT_NAMES = (\n'
+                "    'splits', 'split_rule', 'data_source', 'byod_rows', 'train_records', 'val_records', 'test_records', 'dataset_report', 'sample_pair', 'probe_fill', 'probes',\n"
+                "    'restored_tensors', 'frozen_test', 'frozen_val', 'frozen_predictions', 'determinism', 'grid_rows', 'grid_runs', 'selection', 'selected_name', 'adapt_result',\n"
+                "    'selected_state', 'adapt_seconds', 'adapted_test', 'adapted_val', 'adapted_shown', 'comparison', 'evaluation_report', 'run_settings', 'checks', 'exploratory_payload',\n"
+                "    'pre_check', 'fresh_result', 'comparison_to_record', 'new_records', 'new_predictions', 'artifact_manifest', 'reloaded', 'reloaded_test', 'before', 'after', 'parity',\n"
+                "    'result_payload',\n"
+                ')\n'
+                '\n'
+                '\n'
+                'def refuse_byod(file_name, reason):\n'
+                '    """Remove the earlier run\'s results from this session, then stop the cell with one Refused: line naming the file and the fix."""\n'
+                '    for name in RUN_RESULT_NAMES:\n'
+                '        globals().pop(name, None)\n'
+                "    reason = str(reason).removeprefix(f'{{file_name}}: ').removeprefix(f'{{file_name}} ').rstrip('. ')\n"
+                "    if 'again' not in reason:\n"
+                "        reason += '; fix the input and run this cell again'\n"
+                "    raise BYODRefusal(file_name, reason + ' (the earlier results of this session were cleared).') from None\n"
+                '\n'
+                '\n'
                 'if USE_BYOD:\n'
-                '    if BYOD_PATH.strip():\n'
-                '        byod_path = Path(BYOD_PATH.strip()).expanduser()\n'
-                '        if not byod_path.exists():\n'
-                "            raise FileNotFoundError(f'BYOD_PATH {{BYOD_PATH!r}} does not exist (relative paths start at {{Path.cwd()}}): give a .zip or a folder holding pairs.csv and the GeoTIFF files.')\n"
-                '        file_name = byod_path.name\n'
-                '    else:\n'
-                '        try:\n'
-                '            from google.colab import files\n'
-                '        except ImportError:\n'
-                "            raise RuntimeError('USE_BYOD is True but BYOD_PATH is empty, and the upload dialog exists only in Google Colab: on Kaggle or Jupyter put the zip (or folder) in the runtime and set BYOD_PATH to its path.') from None\n"
-                '        uploaded = files.upload() or {{}}\n'
-                '        if len(uploaded) != 1:\n'
-                "            raise ValueError(f'Upload exactly one .zip file (received {{len(uploaded)}}; a cancelled dialog sends none): run this cell again.')\n"
-                '        file_name, payload = next(iter(uploaded.items()))\n'
-                "        if not file_name.lower().endswith('.zip'):\n"
-                "            raise ValueError(f'{{file_name}}: upload one .zip holding pairs.csv and the GeoTIFF files.')\n"
-                "        byod_path = Path('work') / file_name\n"
-                '        byod_path.parent.mkdir(parents=True, exist_ok=True)\n'
-                '        byod_path.write_bytes(payload)\n'
-                '    byod_rows = read_byod_table(byod_path)\n'
-                '    splits, split_rule = split_byod(load_byod_dataset(byod_path), byod_rows, seed=0)\n'
+                "    # DAT20: every problem with your input (path, upload, archive, table, chips, labels, split) stops here as one Refused: line.\n"
+                "    file_name = Path(BYOD_PATH.strip()).name if BYOD_PATH.strip() else '(no file)'\n"
+                '    try:\n'
+                '        if BYOD_PATH.strip():\n'
+                '            byod_path = Path(BYOD_PATH.strip()).expanduser()\n'
+                '            if not byod_path.exists():\n'
+                "                raise BYODRefusal(file_name, f'BYOD_PATH {{BYOD_PATH!r}} does not exist (relative paths start at {{Path.cwd()}}): give a .zip or a folder holding pairs.csv and the GeoTIFF files.')\n"
+                '        else:\n'
+                '            try:\n'
+                '                from google.colab import files\n'
+                '            except ImportError:\n'
+                "                raise BYODRefusal(file_name, 'USE_BYOD is True but BYOD_PATH is empty, and the upload dialog exists only in Google Colab: on Kaggle or Jupyter put the zip (or folder) in the runtime and set BYOD_PATH to its path.') from None\n"
+                '            uploaded = files.upload() or {{}}\n'
+                '            if len(uploaded) != 1:\n'
+                "                raise BYODRefusal(file_name, f'Upload exactly one .zip file (received {{len(uploaded)}}; a cancelled dialog sends none): run this cell again.')\n"
+                '            file_name, payload = next(iter(uploaded.items()))\n'
+                "            if not file_name.lower().endswith('.zip'):\n"
+                "                raise BYODRefusal(file_name, 'upload one .zip holding pairs.csv and the GeoTIFF files.')\n"
+                "            byod_path = Path('work') / file_name\n"
+                '            byod_path.parent.mkdir(parents=True, exist_ok=True)\n'
+                '            byod_path.write_bytes(payload)\n'
+                '        byod_rows = read_byod_table(byod_path)\n'
+                '        splits, split_rule = split_byod(load_byod_dataset(byod_path), byod_rows, seed=0)\n'
+                '    except BYODRefusal as exc:\n'
+                '        refuse_byod(exc.file_name, exc.reason)\n'
+                '    except (TypeError, ValueError, KeyError, FileNotFoundError, IsADirectoryError, NotADirectoryError, PermissionError, zipfile.BadZipFile) as exc:\n'
+                '        refuse_byod(file_name, exc)\n'
                 "    data_source = 'BYOD (' + file_name + ')'\n"
                 'else:\n'
                 "    splits = fetch_sample_dataset(cache_dir='weights/sen1floods11')\n"

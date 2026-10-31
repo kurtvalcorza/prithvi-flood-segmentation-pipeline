@@ -13,6 +13,7 @@ import json
 import re
 import sys
 import types
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -280,13 +281,13 @@ def test_swp_f_sections_5_and_6_restore_before_evaluating_or_training(notebook):
 
 def _byod_block(notebook: dict) -> str:
     source = _cell(notebook, "if USE_BYOD:")
-    return source[source.index("if USE_BYOD:") : source.index("else:\n    splits = fetch_sample_dataset")]
+    return source[source.index("class BYODRefusal(ValueError):") : source.index("else:\n    splits = fetch_sample_dataset")]
 
 
 def _byod_namespace(path: str) -> dict:
     loaded = []
     return {
-        "USE_BYOD": True, "BYOD_PATH": path, "Path": Path, "loaded": loaded,
+        "USE_BYOD": True, "BYOD_PATH": path, "Path": Path, "zipfile": zipfile, "loaded": loaded,
         "load_byod_dataset": lambda p: loaded.append(Path(p)) or ["r"],
         "read_byod_table": lambda p: [],
         "split_byod": lambda records, rows, seed: ({"train": records, "validation": records, "test": records}, "stand-in"),
@@ -305,9 +306,10 @@ def test_swp_b_byod_path_reads_a_folder_without_colab(notebook, tmp_path, monkey
 def test_swp_b_missing_path_and_off_colab_upload_give_clear_messages(notebook, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "google.colab", None)
-    with pytest.raises(FileNotFoundError, match="BYOD_PATH 'nope.zip' does not exist"):
+    # DAT20: both are refusals now (BYODRefusal, a ValueError), shown as one Refused: line.
+    with pytest.raises(ValueError, match="BYOD_PATH 'nope.zip' does not exist"):
         exec(compile(_byod_block(notebook), "<byod>", "exec"), _byod_namespace("nope.zip"))
-    with pytest.raises(RuntimeError, match="upload dialog exists only in Google Colab"):
+    with pytest.raises(ValueError, match="upload dialog exists only in Google Colab"):
         exec(compile(_byod_block(notebook), "<byod>", "exec"), _byod_namespace(""))
 
 
